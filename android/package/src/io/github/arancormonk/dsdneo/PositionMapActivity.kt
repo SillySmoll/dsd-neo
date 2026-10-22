@@ -27,7 +27,9 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
+import android.text.InputType
 import android.widget.Button
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -74,10 +76,21 @@ class PositionMapActivity : Activity() {
     private lateinit var countText: TextView
     private lateinit var windowButton: Button
     private lateinit var emptyBanner: TextView
+    private lateinit var talkBanner: TextView
+    private lateinit var followButton: Button
 
     private val handler = Handler(Looper.getMainLooper())
     private val io: ExecutorService = Executors.newSingleThreadExecutor()
+    /** Radios inside the time window; what the count, list and Fit all use. */
     private var radios: List<PositionLog.Radio> = emptyList()
+    /** Every radio the position file holds, for Find and Follow, whatever the window. */
+    private var allRadios: List<PositionLog.Radio> = emptyList()
+    private var selectedSource: Long? = null
+
+    private var followTalker = false
+    /** The talker the map last flew to, so one transmission is followed once. */
+    private var followedSource: Long? = null
+    private val statusIo: ExecutorService = Executors.newSingleThreadExecutor()
     private var fittedOnce = false
     private var polling = false
 
@@ -96,6 +109,14 @@ class PositionMapActivity : Activity() {
             if (!polling) return
             refreshPositions()
             handler.postDelayed(this, POLL_MS)
+        }
+    }
+
+    private val talkerPoll = object : Runnable {
+        override fun run() {
+            if (!polling) return
+            if (followTalker) pollTalker()
+            handler.postDelayed(this, TALKER_POLL_MS)
         }
     }
 
@@ -122,7 +143,22 @@ class PositionMapActivity : Activity() {
         root.addView(mapView, FrameLayout.LayoutParams(MATCH, MATCH))
 
         topBar = buildTopBar()
-        root.addView(topBar, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.TOP))
+        talkBanner = TextView(this).apply {
+            setTextColor(TEXT)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            typeface = Typeface.DEFAULT_BOLD
+            background = panel(TALK_BG)
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+            setOnClickListener { selectedRadio()?.let { showRadio(it) } }
+        }
+        val topColumn = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        topColumn.addView(topBar, LinearLayout.LayoutParams(MATCH, WRAP))
+        topColumn.addView(talkBanner, LinearLayout.LayoutParams(MATCH, WRAP).apply {
+            leftMargin = dp(12); rightMargin = dp(12); topMargin = dp(8)
+        })
+        root.addView(topColumn, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.TOP))
 
         emptyBanner = TextView(this).apply {
             text = getString(R.string.map_empty)
@@ -186,6 +222,7 @@ class PositionMapActivity : Activity() {
         }
         titles.addView(countText)
         bar.addView(titles, LinearLayout.LayoutParams(0, WRAP, 1f))
+        bar.addView(pill("Find") { showFind() }, LinearLayout.LayoutParams(WRAP, WRAP).apply { rightMargin = dp(6) })
         windowButton = pill(WINDOWS[windowIndex].first) { cycleWindow() }
         bar.addView(windowButton)
         bar.addView(pill("Map") { chooseBaseMap() }, LinearLayout.LayoutParams(WRAP, WRAP).apply { leftMargin = dp(6) })
@@ -201,7 +238,9 @@ class PositionMapActivity : Activity() {
         bar.addView(pill("Units") { showUnits() }, lp())
         bar.addView(pill("Fit all") { fitAll(animate = true) }, lp())
         bar.addView(pill("Me") { centerOnMe() }, lp())
-        bar.addView(pill("Clear") { confirmClear() }, lp())
+        followButton = pill(followLabel()) { toggleFollow() }
+        bar.addView(followButton, lp())
+        applyFollowLook()
         return bar
     }
 
@@ -277,6 +316,12 @@ class PositionMapActivity : Activity() {
             PropertyFactory.circleStrokeColor(Color.WHITE),
             PropertyFactory.circleStrokeWidth(2.5f),
         ))
+        s.addLayer(CircleLayer(LAYER_SELECTED, SRC_UNITS).withProperties(
+            PropertyFactory.circleRadius(16f),
+            PropertyFactory.circleColor(Color.parseColor("#3300E5FF")),
+            PropertyFactory.circleStrokeColor(Color.parseColor("#00E5FF")),
+            PropertyFactory.circleStrokeWidth(3f),
+        ).withFilter(Expression.toBool(Expression.get("selected"))))
         s.addLayer(CircleLayer(LAYER_UNITS, SRC_UNITS).withProperties(
             PropertyFactory.circleRadius(8f),
             PropertyFactory.circleColor(
@@ -309,15 +354,28 @@ class PositionMapActivity : Activity() {
         if (isDestroyed || io.isShutdown) return
         runCatching {
             io.execute {
-                val loaded = PositionLog.units(PositionLog.readFixes(context), since)
-                handler.post { showPositions(loaded) }
+                val fixes = PositionLog.readFixes(context)
+                val loaded = PositionLog.units(fixes, since)
+                val all = if (since == 0L) loaded else PositionLog.units(fixes, 0L)
+                handler.post { showPositions(loaded, all) }
             }
         }
     }
 
-    private fun showPositions(loaded: List<PositionLog.Radio>) {
+    private fun showPositions(loaded: List<PositionLog.Radio>, all: List<PositionLog.Radio>) {
         if (isFinishing || isDestroyed) return
         radios = loaded
+        allRadios = all
+        renderRadios()
+        if (!fittedOnce && loaded.isNotEmpty() && selectedSource == null) {
+            fittedOnce = true
+            fitAll(animate = false)
+        }
+    }
+
+    /** Draws the windowed radios, plus the selected one even when it reported before the window. */
+    private fun renderRadios() {
+        val loaded = radios
         countText.text = when (loaded.size) {
             0 -> getString(R.string.map_count_none)
             1 -> getString(R.string.map_count_one)
@@ -326,22 +384,154 @@ class PositionMapActivity : Activity() {
         emptyBanner.visibility = if (loaded.isEmpty()) View.VISIBLE else View.GONE
         val s = style ?: return
         val now = System.currentTimeMillis()
-        val points = loaded.map { radio ->
+        val selected = selectedRadio()
+        val shown = if (selected != null && loaded.none { it.source == selected.source }) loaded + selected else loaded
+        val points = shown.map { radio ->
             val fix = radio.latest
             Feature.fromGeometry(Point.fromLngLat(fix.longitude, fix.latitude)).apply {
                 addStringProperty("source", radio.source.toString())
                 addStringProperty("label", "${radio.source} · ${ageText(now - fix.epochMillis)}")
                 addBooleanProperty("fresh", now - fix.epochMillis < FRESH_MS)
+                addBooleanProperty("selected", radio.source == selectedSource)
             }
         }
-        val tracks = loaded.filter { it.track.size > 1 }.map { radio ->
+        val tracks = shown.filter { it.track.size > 1 }.map { radio ->
             Feature.fromGeometry(LineString.fromLngLats(radio.track.map { Point.fromLngLat(it.longitude, it.latitude) }))
         }
         s.getSourceAs<GeoJsonSource>(SRC_UNITS)?.setGeoJson(FeatureCollection.fromFeatures(points))
         s.getSourceAs<GeoJsonSource>(SRC_TRACKS)?.setGeoJson(FeatureCollection.fromFeatures(tracks))
-        if (!fittedOnce && loaded.isNotEmpty()) {
-            fittedOnce = true
-            fitAll(animate = false)
+    }
+
+    private fun selectedRadio(): PositionLog.Radio? {
+        val id = selectedSource ?: return null
+        return allRadios.firstOrNull { it.source == id }
+    }
+
+    /** Rings [radio] and, when [fly], brings it to the middle of the map. */
+    private fun select(radio: PositionLog.Radio, fly: Boolean) {
+        selectedSource = radio.source
+        fittedOnce = true
+        renderRadios()
+        if (fly) {
+            val readyMap = map ?: return
+            val zoom = maxOf(readyMap.cameraPosition.zoom, 15.0)
+            readyMap.animateCamera(
+                CameraUpdateFactory.newLatLngZoom(LatLng(radio.latest.latitude, radio.latest.longitude), zoom), 700)
+        }
+    }
+
+    // ---- Find ----------------------------------------------------------------------------
+
+    private fun showFind() {
+        val input = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            hint = getString(R.string.map_find_hint)
+            setSingleLine()
+        }
+        val box = FrameLayout(this).apply {
+            setPadding(dp(20), dp(8), dp(20), 0)
+            addView(input)
+        }
+        val d = dialog()
+            .setTitle(R.string.map_find_title)
+            .setView(box)
+            .setPositiveButton(R.string.map_find_go) { _, _ -> findRadio(input.text.toString().trim()) }
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+        input.setOnEditorActionListener { _, _, _ ->
+            d.dismiss(); findRadio(input.text.toString().trim()); true
+        }
+        d.show()
+        input.requestFocus()
+    }
+
+    private fun findRadio(query: String) {
+        if (query.isEmpty()) return
+        val exact = query.toLongOrNull()?.let { id -> allRadios.firstOrNull { it.source == id } }
+        if (exact != null) {
+            select(exact, fly = true)
+            showRadio(exact)
+            return
+        }
+        val matches = allRadios.filter { it.source.toString().contains(query) }
+        when (matches.size) {
+            0 -> toast(getString(R.string.map_find_none, query))
+            1 -> { select(matches[0], fly = true); showRadio(matches[0]) }
+            else -> {
+                val now = System.currentTimeMillis()
+                val items = matches.map { "${it.source}   ${ageText(now - it.latest.epochMillis)} ago" }.toTypedArray()
+                dialog()
+                    .setTitle(getString(R.string.map_find_matches, matches.size, query))
+                    .setItems(items) { _, which -> select(matches[which], fly = true); showRadio(matches[which]) }
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show()
+            }
+        }
+    }
+
+    // ---- Follow the talker ---------------------------------------------------------------
+
+    private fun followLabel(): String = if (followTalker) "Follow ✓" else "Follow"
+
+    private fun applyFollowLook() {
+        followButton.text = followLabel()
+        followButton.background = panel(if (followTalker) FOLLOW_ON else PANEL, stroke = if (followTalker) FOLLOW_STROKE else STROKE)
+    }
+
+    private fun toggleFollow() {
+        followTalker = !followTalker
+        followedSource = null
+        applyFollowLook()
+        savePreferences()
+        if (followTalker) {
+            toast(getString(R.string.map_follow_on))
+            pollTalker()
+        } else {
+            talkBanner.visibility = View.GONE
+        }
+    }
+
+    /** Reads who is talking from the decoder's status record, off the main thread. */
+    private fun pollTalker() {
+        if (isDestroyed || statusIo.isShutdown) return
+        runCatching {
+            statusIo.execute {
+                val status = try {
+                    DecoderStatus.parse(DsdNative.nativeNotificationStatus())
+                } catch (_: Throwable) {
+                    null
+                }
+                val lead = status?.leadSlot?.takeIf { it.state == DecoderStatus.LINE_ACTIVE }
+                val src = lead?.srcText.orEmpty()
+                val tg = lead?.tgText.orEmpty()
+                val id = if (lead == null) null else radioIdFrom(src)
+                handler.post { onTalker(lead != null, id, src, tg) }
+            }
+        }
+    }
+
+    private fun onTalker(active: Boolean, id: Long?, srcText: String, tgText: String) {
+        if (isFinishing || isDestroyed || !followTalker) return
+        if (!active) {
+            // Between transmissions: the next key-up re-centres, even by the same radio.
+            talkBanner.visibility = View.GONE
+            followedSource = null
+            return
+        }
+        val who = srcText.ifBlank { id?.toString() ?: "?" }
+        val tg = tgText.ifBlank { "?" }
+        val radio = id?.let { wanted -> allRadios.firstOrNull { it.source == wanted } }
+        talkBanner.text = if (radio != null) {
+            getString(R.string.map_talking, who, tg, ageText(System.currentTimeMillis() - radio.latest.epochMillis))
+        } else {
+            getString(R.string.map_talking_no_fix, who, tg)
+        }
+        talkBanner.visibility = View.VISIBLE
+        if (radio != null && id != followedSource) {
+            followedSource = id
+            select(radio, fly = true)
+        } else if (radio == null) {
+            followedSource = id
         }
     }
 
@@ -367,7 +557,7 @@ class PositionMapActivity : Activity() {
         val screen: PointF = readyMap.projection.toScreenLocation(point)
         val hits = readyMap.queryRenderedFeatures(screen, LAYER_UNITS, LAYER_LABELS)
         val source = hits.firstOrNull()?.getStringProperty("source") ?: return false
-        radios.firstOrNull { it.source.toString() == source }?.let { showRadio(it) }
+        allRadios.firstOrNull { it.source.toString() == source }?.let { select(it, fly = false); showRadio(it) }
         return true
     }
 
@@ -381,9 +571,10 @@ class PositionMapActivity : Activity() {
             .setTitle(getString(R.string.map_units_title, radios.size))
             .setItems(items) { _, which ->
                 val r = radios[which]
-                map?.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(r.latest.latitude, r.latest.longitude), 15.0), 600)
+                select(r, fly = true)
                 showRadio(r)
             }
+            .setNeutralButton(R.string.map_clear_all) { _, _ -> confirmClear() }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
     }
@@ -432,6 +623,8 @@ class PositionMapActivity : Activity() {
             .setPositiveButton(R.string.map_clear_confirm) { _, _ ->
                 if (PositionLog.clear(this)) {
                     fittedOnce = false
+                    selectedSource = null
+                    followedSource = null
                     refreshPositions()
                 } else {
                     toast(getString(R.string.map_clear_failed))
@@ -553,11 +746,13 @@ class PositionMapActivity : Activity() {
         val p = getSharedPreferences(PREFS, MODE_PRIVATE)
         baseMap = p.getString(KEY_BASE, baseMap)?.takeIf { it in BASE_MAPS } ?: "osm"
         windowIndex = p.getInt(KEY_WINDOW, windowIndex).coerceIn(0, WINDOWS.size - 1)
+        followTalker = p.getBoolean(KEY_FOLLOW, false)
     }
 
     private fun savePreferences() {
         getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-            .putString(KEY_BASE, baseMap).putInt(KEY_WINDOW, windowIndex).apply()
+            .putString(KEY_BASE, baseMap).putInt(KEY_WINDOW, windowIndex)
+            .putBoolean(KEY_FOLLOW, followTalker).apply()
     }
 
     // ---- Lifecycle -----------------------------------------------------------------------
@@ -570,12 +765,15 @@ class PositionMapActivity : Activity() {
         polling = true
         handler.removeCallbacks(poll)
         handler.post(poll)
+        handler.removeCallbacks(talkerPoll)
+        handler.post(talkerPoll)
         if (hasLocationPermission()) startLocationUpdates()
     }
 
     override fun onPause() {
         polling = false
         handler.removeCallbacks(poll)
+        handler.removeCallbacks(talkerPoll)
         stopLocationUpdates()
         mapView.onPause()
         super.onPause()
@@ -594,12 +792,15 @@ class PositionMapActivity : Activity() {
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
         io.shutdownNow()
+        statusIo.shutdownNow()
         mapView.onDestroy()
         super.onDestroy()
     }
 
     companion object {
         private const val POLL_MS = 3000L
+        private const val TALKER_POLL_MS = 1000L
+        private const val KEY_FOLLOW = "follow_talker"
         private const val FRESH_MS = 2 * 60 * 1000L
         private const val REQ_LOCATION = 4101
         private const val PREFS = "sigsense_map"
@@ -615,6 +816,7 @@ class PositionMapActivity : Activity() {
         private const val LAYER_LABELS = "sig-units-labels"
         private const val LAYER_TRACKS = "sig-tracks-lines"
         private const val LAYER_ME = "sig-me-dot"
+        private const val LAYER_SELECTED = "sig-units-selected"
 
         private val BG = Color.parseColor("#0B0F14")
         private val BAR = Color.parseColor("#E60B0F14")
@@ -622,6 +824,22 @@ class PositionMapActivity : Activity() {
         private val STROKE = Color.parseColor("#33FFFFFF")
         private val TEXT = Color.parseColor("#F2F5F8")
         private val MUTED = Color.parseColor("#9AA5B1")
+        private val TALK_BG = Color.parseColor("#E6B71C1C")
+        private val FOLLOW_ON = Color.parseColor("#E6006064")
+        private val FOLLOW_STROKE = Color.parseColor("#00E5FF")
+
+        private val TRAILING_ID = Regex("""\((\d{1,10})\)\s*$""")
+
+        /**
+         * The radio ID in a status record's talker text: "30534", or "Alias (30534)" when the
+         * radio has an alias. Null when the text carries no number (an alias with no ID).
+         */
+        @JvmStatic
+        internal fun radioIdFrom(text: String): Long? {
+            val t = text.trim()
+            TRAILING_ID.find(t)?.let { return it.groupValues[1].toLongOrNull() }
+            return if (t.isNotEmpty() && t.length <= 10 && t.all { it.isDigit() }) t.toLongOrNull()?.takeIf { it > 0 } else null
+        }
 
         /** Label and how far back it reaches (0 = everything kept in the file). */
         private val WINDOWS = listOf(

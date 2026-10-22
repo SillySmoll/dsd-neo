@@ -43,4 +43,13 @@
     <string name="map_clear_failed">Could not clear the position file</string>
     <string name="map_base_title">Base map</string>
     <string name="map_locating">Finding your location…</string>
+    <string name="map_find_title">Find a radio</string>
+    <string name="map_find_hint">Radio ID, e.g. 30534</string>
+    <string name="map_find_go">Find</string>
+    <string name="map_find_none">No saved position for radio %1$s</string>
+    <string name="map_find_matches">%1$d radios match %2$s</string>
+    <string name="map_follow_on">Following talkers: the map jumps to each radio as it keys up</string>
+    <string name="map_talking">%1$s talking · TG %2$s · fix %3$s old</string>
+    <string name="map_talking_no_fix">%1$s talking · TG %2$s · no position yet</string>
+    <string name="map_clear_all">Clear all…</string>
 </resources>
