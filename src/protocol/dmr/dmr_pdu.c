@@ -444,6 +444,30 @@ dmr_udp_comp_decode_payload(const dsd_opts* opts, dsd_state* state, uint16_t src
     return 0;
 }
 
+static void dmr_lrrp_classify_type(uint8_t lrrp_type, uint8_t* is_request, uint8_t* is_response);
+
+// SIG-SENSE: Motorola Capacity Max sends LRRP in compressed UDP with both port indices set to the
+// first manufacturer-specific value (95) instead of an extended-header port. Accept such a payload as
+// LRRP only when it is a document dsd-neo classifies whose length byte runs exactly to the end, the
+// same shape test the wrapped-document path relies on, so other vendor payloads are left alone.
+static int
+dmr_udp_comp_mfr_payload_is_lrrp(const dmr_udp_comp_port* src, const dmr_udp_comp_port* dst, const uint8_t* payload,
+                                 uint16_t avail) {
+    if ((src->known || src->idx < 95U) && (dst->known || dst->idx < 95U)) {
+        return 0;
+    }
+    if (avail < 4U) {
+        return 0;
+    }
+    uint8_t is_request = 0;
+    uint8_t is_response = 0;
+    dmr_lrrp_classify_type(payload[0], &is_request, &is_response);
+    if (!is_request && !is_response) {
+        return 0;
+    }
+    return ((uint16_t)payload[1] + 2U == avail) ? 1 : 0;
+}
+
 void
 dmr_udp_comp_pdu(dsd_opts* opts, dsd_state* state, uint16_t len, const uint8_t* DMR_PDU) {
     if (DMR_PDU == NULL || len < 5U) {
@@ -497,7 +521,14 @@ dmr_udp_comp_pdu(dsd_opts* opts, dsd_state* state, uint16_t len, const uint8_t* 
 
     const uint16_t src_port = src.known ? src.port : 0U;
     const uint16_t dst_port = dst.known ? dst.port : 0U;
-    const int has_gps = dmr_udp_comp_decode_payload(opts, state, src_port, dst_port, len, ptr, DMR_PDU);
+    int has_gps = 0;
+    if (ptr < len && dmr_udp_comp_mfr_payload_is_lrrp(&src, &dst, DMR_PDU + ptr, (uint16_t)(len - ptr))) {
+        DSD_FPRINTF(stderr, "LRRP (Motorola compressed UDP);");
+        dmr_lrrp(opts, state, (uint16_t)(len - ptr), (uint32_t)state->dmr_lrrp_source[slot],
+                 (uint32_t)state->dmr_lrrp_target[slot], DMR_PDU + ptr, (uint8_t)(state->event_crc_invalid[slot] == 0));
+    } else {
+        has_gps = dmr_udp_comp_decode_payload(opts, state, src_port, dst_port, len, ptr, DMR_PDU);
+    }
 
     char comp_string[500];
     DSD_MEMSET(comp_string, 0, sizeof(comp_string));
