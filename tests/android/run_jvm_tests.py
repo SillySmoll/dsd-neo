@@ -211,7 +211,7 @@ SUITES = {
         builds=(
             Build(sources=("EngineStop.kt",), tests=("EngineStopTest.kt",)),
             Build(
-                sources=("EngineStop.kt", "DecoderService.kt", "DecoderStatus.kt"),
+                sources=("EngineStop.kt", "DecoderService.kt", "DecoderStatus.kt", "PositionLog.kt"),
                 tests=("DecoderServiceStopTest.kt",),
                 stubs=("Service.kt", "ServiceContext.kt", "ServicePackageManager.kt", "ServiceNative.kt",
                        "Os.kt", "PowerManager.kt", "Log.kt", "JSONObject.kt"),
