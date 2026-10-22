@@ -370,7 +370,14 @@ lip_report(const dsd_opts* opts, dsd_state* state, const lip_fields* f, uint32_t
         if (hash_prefix >= 0 || expected_source != 0U) {
             (void)gps_enrich_active_call(state, (uint8_t)slot, expected_source, state->dmr_embedded_gps[slot], NULL);
         }
-        gps_write_lrrp_compact(opts, state, slot, src, lat_sf * latitude, lon_sf * longitude, vt, dt);
+        if (f->lat == 0U && f->lat_sign == 0U) {
+            // SIG-SENSE: an all-zero latitude field is not a fix. Capacity Max control channels
+            // carry service-0 USBD blocks whose latitude is always zero and whose "longitude"
+            // steps like a counter; recording them put radios on the equator in the map.
+            DSD_FPRINTF(stderr, " Zero latitude: not recorded;");
+        } else {
+            gps_write_lrrp_compact(opts, state, slot, src, lat_sf * latitude, lon_sf * longitude, vt, dt);
+        }
     } else {
         DSD_FPRINTF(stderr, " Position Calculation Error;");
     }
