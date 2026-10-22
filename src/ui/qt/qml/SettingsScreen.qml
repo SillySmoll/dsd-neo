@@ -744,6 +744,16 @@ Item {
                         bottomPadding: 6
                     }
 
+                    // SIG-SENSE: saved positions can be viewed without a running session.
+                    DisclosureRow {
+                        objectName: "settingsPositionMapRow"
+                        visible: decoderHost.positionMapSupported
+                        title: qsTr("Position map")
+                        subtitle: qsTr("Radios that reported LRRP, USBD/LIP or GPS positions")
+                        showDivider: true
+                        onTapped: decoderHost.openPositionMap()
+                    }
+
                     DisclosureRow {
                         objectName: "settingsDiagnosticsRow"
                         title: qsTr("Diagnostics")

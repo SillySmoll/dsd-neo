@@ -44,6 +44,8 @@ class DecoderHost : public QObject {
     Q_PROPERTY(bool screenPolicySupported READ screenPolicySupported CONSTANT)
     Q_PROPERTY(bool locationSupported READ locationSupported CONSTANT)
     Q_PROPERTY(bool shareSupported READ shareSupported CONSTANT)
+    /* SIG-SENSE: a native position map (Android). */
+    Q_PROPERTY(bool positionMapSupported READ positionMapSupported CONSTANT)
     Q_PROPERTY(int localDeviceFailureKind READ localDeviceFailureKind NOTIFY localDeviceChanged)
     Q_PROPERTY(bool usesPlatformFontScaling READ usesPlatformFontScaling CONSTANT)
     Q_PROPERTY(qreal keyboardTop READ keyboardTop NOTIFY keyboardChanged)
@@ -308,6 +310,12 @@ class DecoderHost : public QObject {
         return false;
     }
 
+    /** SIG-SENSE: true where openPositionMap() shows a map of decoded positions. */
+    virtual bool
+    positionMapSupported() const {
+        return false;
+    }
+
     virtual int
     localDeviceFailureKind() const {
         return NoDeviceFailure;
@@ -332,6 +340,10 @@ class DecoderHost : public QObject {
     cancelLocationRequest(qint64 requestId) {
         (void)requestId;
     }
+
+    /** SIG-SENSE: open the position map; a no-op where positionMapSupported is false. */
+    virtual void
+    openPositionMap() {}
 
     /** Content, never an arbitrary path. Platform hosts own their narrow share cache. */
     virtual void

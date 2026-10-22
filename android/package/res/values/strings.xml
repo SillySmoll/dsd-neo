@@ -25,4 +25,22 @@
     <string name="error_configure_failed">Those options were rejected (code %1$d). Check the input settings.</string>
     <string name="error_busy">A previous session is still stopping</string>
     <string name="decoder_emergency_prefix">EMERGENCY ·&#32;</string>
+    <!-- SIG-SENSE position map (PositionMapActivity). -->
+    <string name="map_title">Position map</string>
+    <string name="map_empty">No positions yet. Radios appear here when LRRP, USBD/LIP or GPS reports decode. For DMR data on an RTL-SDR, set the bandwidth to 48 kHz.</string>
+    <string name="map_count_none">No radios in this time window</string>
+    <string name="map_count_one">1 radio</string>
+    <string name="map_count_many">%1$d radios</string>
+    <string name="map_units_title">Radios (%1$d)</string>
+    <string name="map_radio_title">Radio %1$s</string>
+    <string name="map_open_in_maps">Open in Maps</string>
+    <string name="map_no_maps_app">No maps app installed</string>
+    <string name="map_copy">Copy</string>
+    <string name="map_copied">Coordinates copied</string>
+    <string name="map_clear_title">Clear all positions?</string>
+    <string name="map_clear_body">This deletes every saved position report from the map. It cannot be undone.</string>
+    <string name="map_clear_confirm">Clear</string>
+    <string name="map_clear_failed">Could not clear the position file</string>
+    <string name="map_base_title">Base map</string>
+    <string name="map_locating">Finding your location…</string>
 </resources>

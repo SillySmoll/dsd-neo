@@ -142,6 +142,15 @@ class DecoderService : Service() {
         super.onDestroy()
     }
 
+    /**
+     * SIG-SENSE: every session writes positions to the file the map reads. Put first so
+     * an explicit -L in the user's extra decoder arguments still wins.
+     */
+    private fun withPositionLog(args: Array<String>): Array<String> {
+        val file = PositionLog.prepare(this) ?: return args
+        return arrayOf("-L", file.absolutePath) + args
+    }
+
     private fun startDecoding(args: Array<String>, startId: Int) {
         synchronized(lock) {
             // Publish the id with the decision to start or reject. Doing this before
@@ -172,7 +181,7 @@ class DecoderService : Service() {
             initialized = true
         }
 
-        val configureRc = DsdNative.nativeConfigure(args, synchronized(lock) { sessionId })
+        val configureRc = DsdNative.nativeConfigure(withPositionLog(args), synchronized(lock) { sessionId })
         if (configureRc == DsdNative.STATUS_CONFIG_EXIT) {
             // Help and other successful one-shot configuration flows did not
             // initialize a session; publish completion without stamping recency.

@@ -37,6 +37,8 @@ dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar', '*.aar'])
     //noinspection GradleDependency
     implementation 'androidx.core:core:1.17.0'
+    // SIG-SENSE: position map (PositionMapActivity).
+    implementation 'org.maplibre.gl:android-sdk:13.6.1'
 }
 
 android {

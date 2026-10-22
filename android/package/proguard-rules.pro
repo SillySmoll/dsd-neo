@@ -51,6 +51,10 @@
     public static java.lang.String pollResult();
 }
 
+-keep,allowoptimization class io.github.arancormonk.dsdneo.PositionMapActivity {
+    public static void open(android.content.Context);
+}
+
 -keep,allowoptimization class io.github.arancormonk.dsdneo.DiagnosticsShare {
     public static void share(android.content.Context, java.lang.String, java.lang.String);
 }

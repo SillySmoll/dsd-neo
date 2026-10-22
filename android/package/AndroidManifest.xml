@@ -93,6 +93,14 @@
                 android:value="-- %%INSERT_APP_ARGUMENTS%% --" />
         </activity>
 
+        <!-- SIG-SENSE: position map, opened from Session options > Map. -->
+        <activity
+            android:name="io.github.arancormonk.dsdneo.PositionMapActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
+            android:label="@string/map_title"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
+            android:exported="false" />
+
         <!-- Same process as the activity: the Qt UI reads app-control snapshots in-process. -->
         <service
             android:name="io.github.arancormonk.dsdneo.DecoderService"

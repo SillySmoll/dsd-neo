@@ -136,6 +136,13 @@ class DecoderHostAndroid : public dsd_qt::DecoderHost {
 
     void shareDiagnostics(const QString& text, const QString& title) override;
 
+    bool
+    positionMapSupported() const override {
+        return true;
+    }
+
+    void openPositionMap() override;
+
     /** @brief True: ScreenSupport applies the screen policy on Android. */
     bool
     screenPolicySupported() const override {

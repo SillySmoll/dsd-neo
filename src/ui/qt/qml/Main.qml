@@ -1498,6 +1498,8 @@ Window {
                 items.push({text: qsTr("Radio"), key: "radio", objectName: "sessionMenuRadio"});
                 items.push({text: qsTr("Spectrum"), key: "spectrum", objectName: "sessionMenuSpectrum"});
             }
+            if (decoderHost.positionMapSupported)
+                items.push({text: qsTr("Map"), key: "map", objectName: "sessionMenuMap"});
             items.push({text: qsTr("Talkgroups"), key: "talkgroups", objectName: "sessionMenuTalkgroups"});
             items.push({text: qsTr("History"), key: "history", objectName: "sessionMenuHistory"});
             items.push({text: qsTr("Settings"), key: "settings", objectName: "sessionMenuSettings"});
@@ -1521,6 +1523,8 @@ Window {
                 mainRoot.sessionDestination = key;
             else if (key === "diagnostics")
                 mainRoot.diagnosticsOpen = true;
+            else if (key === "map")
+                decoderHost.openPositionMap();
             else if (key === "edit" && mainRoot.sessionRow >= 0) {
                 wizard.openForEdit(mainRoot.sessionRow);
                 mainRoot.wizardOpen = true;

@@ -272,6 +272,19 @@ DecoderHostAndroid::shareDiagnostics(const QString& text, const QString& title) 
 }
 
 void
+DecoderHostAndroid::openPositionMap() {
+    QNativeInterface::QAndroidApplication::runOnAndroidMainThread([]() -> QVariant {
+        const auto context = android_context();
+        if (!context.isValid()) {
+            return {};
+        }
+        QJniObject::callStaticMethod<void>("io/github/arancormonk/dsdneo/PositionMapActivity", "open",
+                                           "(Landroid/content/Context;)V", context.object());
+        return {};
+    });
+}
+
+void
 DecoderHostAndroid::requestLocalDeviceAccess() {
     // WP-D5: keep the service's run result intact, but acknowledge its old USB
     // diagnostic so Retry can reacquire access and the next Play can claim again.
