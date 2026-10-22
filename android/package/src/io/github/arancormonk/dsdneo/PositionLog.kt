@@ -10,7 +10,7 @@ import java.time.LocalTime
 import java.time.ZoneId
 
 /**
- * SIG-SENSE: the decoder's LRRP position file (`-L`), shared by the service that
+ * SIG-SENSE: the decoder's LRRP position file (`-L`), shared by the decoder service that
  * turns it on and the map that reads it.
  *
  * Every position path in the engine (DMR LRRP, USBD/LIP, LOCN/NMEA, embedded GPS,
