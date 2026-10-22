@@ -223,6 +223,8 @@ object ScreenSupport {
         if (!onMain("statusTick")) {
             return
         }
+        // SIG-SENSE: remember each talker's talkgroup and raise emergency alerts for the map.
+        runCatching { TalkerLog.observe(context.applicationContext, status) }
         bind(context)
         feed.onTick(running = true, sessionId = sessionId, status = status, wakeAllowed = wakeVerdict)
         applyWindow()

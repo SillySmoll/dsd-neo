@@ -2,4 +2,6 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <cache-path name="diagnostics" path="diagnostics/"/>
+    <!-- SIG-SENSE: position exports shared from the map. -->
+    <cache-path name="exports" path="exports/"/>
 </paths>

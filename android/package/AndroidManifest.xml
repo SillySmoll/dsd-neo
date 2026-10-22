@@ -99,6 +99,7 @@
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
             android:label="@string/map_title"
             android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
+            android:launchMode="singleTop"
             android:exported="false" />
 
         <!-- Same process as the activity: the Qt UI reads app-control snapshots in-process. -->

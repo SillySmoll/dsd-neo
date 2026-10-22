@@ -611,6 +611,13 @@ static int
 session_args_bandwidth_khz(const QVariantMap& system, const SessionArgPrefs& prefs) {
     const int bwOverride = system.value(QStringLiteral("bandwidthKhz"), -1).toInt();
     if (bwOverride > 0) {
+        // SIG-SENSE: DMR data (LRRP, USBD/LIP) fails CRC below 24 kHz on RTL input even when voice
+        // still decodes (docs/cli.md), so a narrower DMR override is raised to the 48 kHz default.
+        const QString flags = system.value(QStringLiteral("decodeFlag")).toString();
+        if (bwOverride < 24
+            && (decode_flag_names(flags, QStringLiteral("-fs")) || decode_flag_names(flags, QStringLiteral("-fr")))) {
+            return 48;
+        }
         return bwOverride;
     }
     return decode_flag_names(system.value(QStringLiteral("decodeFlag")).toString(), QStringLiteral("-fT"))
