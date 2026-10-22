@@ -146,6 +146,9 @@ DecoderHostAndroid::hostDiagnostic(const QString& line) {
 void
 DecoderHostAndroid::shareDiagnostics(const QString&, const QString&) {}
 
+void
+DecoderHostAndroid::openPositionMap() {}
+
 bool
 DecoderHostAndroid::start(const QStringList&) {
     return false;

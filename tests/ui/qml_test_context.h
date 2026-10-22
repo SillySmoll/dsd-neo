@@ -2703,6 +2703,7 @@ class Setup : public QObject {
         host[QStringLiteral("localDeviceStatus")] = QString();
         host[QStringLiteral("locationSupported")] = false;
         host[QStringLiteral("shareSupported")] = false;
+        host[QStringLiteral("positionMapSupported")] = false;
         host[QStringLiteral("localDeviceFailureKind")] = 0;
         host[QStringLiteral("sessionState")] = 0;
         host[QStringLiteral("keyboardTop")] = -1;
