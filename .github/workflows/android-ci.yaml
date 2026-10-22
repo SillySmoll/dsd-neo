@@ -850,7 +850,7 @@ jobs:
           # androiddeployqt substitutes the CMake target name into android:label
           # and drops android:icon entirely, and the app installs as
           # "dsd-neo-app" with the stock Android robot.
-          if ! printf '%s\n' "$badging" | grep -qxF "application-label:'DSD-neo'"; then
+          if ! printf '%s\n' "$badging" | grep -qxF "application-label:'SIG-SENSE'"; then
             echo "ERROR: unexpected launcher label" >&2
             printf '%s\n' "$badging" | grep '^application-label' >&2 || true
             exit 1
