@@ -23,6 +23,7 @@ import java.util.concurrent.Executors
 object TalkerLog {
     private const val TAG = "SigSenseTalkers"
     private const val SAVE_EVERY_MS = 5_000L
+    private const val MAINTAIN_EVERY_MS = 10_000L
     private const val HEARD_REFRESH_MS = 30_000L
     /** One emergency notification per radio in this long, however long the call. */
     private const val ALERT_HOLDOFF_MS = 2 * 60_000L
@@ -36,6 +37,7 @@ object TalkerLog {
     private var loaded = false
     private var dirty = false
     private var lastSave = 0L
+    private var lastMaintain = 0L
     private val writer = Executors.newSingleThreadExecutor()
 
     private val TRAILING_ID = Regex("""\((\d{1,10})\)\s*$""")
@@ -75,6 +77,11 @@ object TalkerLog {
             if (slot.emergency) alert(context, id, slot.srcText.trim().ifEmpty { id.toString() }, tg, now)
         }
         if (dirty && now - lastSave > SAVE_EVERY_MS) save(context, now)
+        if (now - lastMaintain > MAINTAIN_EVERY_MS) {
+            // Instant replay: keep the recordings folder to the newest few, each at most 30 s.
+            lastMaintain = now
+            writer.execute { RecentCalls.maintain(context) }
+        }
     }
 
     @JvmStatic

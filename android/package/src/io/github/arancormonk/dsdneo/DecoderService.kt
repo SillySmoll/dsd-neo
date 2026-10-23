@@ -146,10 +146,7 @@ class DecoderService : Service() {
      * SIG-SENSE: every session writes positions to the file the map reads. Put first so
      * an explicit -L in the user's extra decoder arguments still wins.
      */
-    private fun withPositionLog(args: Array<String>): Array<String> {
-        val file = PositionLog.prepare(this) ?: return args
-        return arrayOf("-L", file.absolutePath) + args
-    }
+    private fun withPositionLog(args: Array<String>): Array<String> = SigSenseSession.args(this, args)
 
     private fun startDecoding(args: Array<String>, startId: Int) {
         synchronized(lock) {

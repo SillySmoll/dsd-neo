@@ -124,3 +124,35 @@ object PositionLog {
         }.getOrNull()
     }
 }
+
+/**
+ * SIG-SENSE: decoder options every listening session gets. They go first on the command
+ * line, so options the user typed (a -L, -P/-7/-w or --src-csv of their own) still win.
+ *
+ * - `-L` writes positions for the map ([PositionLog]).
+ * - `-7 … -P` saves each transmission as a WAV for instant replay ([RecentCalls]).
+ * - `--src-csv` labels radios with the names edited in the map ([RadioNames]).
+ */
+object SigSenseSession {
+    @JvmStatic
+    fun recentDir(context: Context): File = File(File(context.filesDir, "sigsense"), "recent")
+
+    @JvmStatic
+    fun namesFile(context: Context): File = File(File(context.filesDir, "sigsense"), "radio_names.csv")
+
+    @JvmStatic
+    fun args(context: Context, args: Array<String>): Array<String> {
+        val extra = ArrayList<String>()
+        PositionLog.prepare(context)?.let { extra += listOf("-L", it.absolutePath) }
+        val has = { opt: String -> args.any { it == opt } }
+        if (!has("-P") && !has("-7") && !has("-w")) {
+            val dir = recentDir(context)
+            if (dir.isDirectory || dir.mkdirs()) extra += listOf("-7", dir.absolutePath, "-P")
+        }
+        if (!has("--src-csv")) {
+            val names = namesFile(context)
+            if (names.isFile && names.length() > 0L) extra += listOf("--src-csv", names.absolutePath)
+        }
+        return extra.toTypedArray() + args
+    }
+}

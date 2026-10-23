@@ -14,6 +14,8 @@ import android.graphics.PointF
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.location.Location
+import android.media.AudioAttributes
+import android.media.MediaPlayer
 import android.location.LocationListener
 import android.location.LocationManager
 import android.net.Uri
@@ -31,6 +33,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.FileProvider
@@ -86,6 +89,12 @@ class PositionMapActivity : Activity() {
     private lateinit var alertBanner: TextView
     private lateinit var historyBar: TextView
     private lateinit var followButton: Button
+    private lateinit var playerBar: TextView
+    private lateinit var replayPanel: LinearLayout
+    private lateinit var replaySeek: SeekBar
+    private lateinit var replayTimeText: TextView
+    private lateinit var replayPlayButton: Button
+    private lateinit var replaySpeedButton: Button
 
     private val handler = Handler(Looper.getMainLooper())
     private val io: ExecutorService = Executors.newSingleThreadExecutor()
@@ -98,6 +107,21 @@ class PositionMapActivity : Activity() {
     private var allRadios: List<PositionLog.Radio> = emptyList()
     private var allFixes: List<PositionLog.Fix> = emptyList()
     private var talkers: Map<Long, TalkerLog.Entry> = emptyMap()
+    /** Names the user gave radios ([RadioNames]). */
+    private var names: Map<Long, String> = emptyMap()
+    private var fadeOld = true
+
+    /** Timeline replay: the moment shown, or null when the map is live. */
+    private var replayTime: Long? = null
+    private var replayStart = 0L
+    private var replayEnd = 0L
+    private var replayPlaying = false
+    private var replaySpeedIndex = 1
+    private var replayBySource: Map<Long, List<PositionLog.Fix>> = emptyMap()
+
+    /** Instant replay of recent transmissions. */
+    private var player: MediaPlayer? = null
+    private val playQueue = ArrayDeque<RecentCalls.Call>()
     private var selectedSource: Long? = null
     private var fittedOnce = false
     private var polling = false
@@ -143,6 +167,23 @@ class PositionMapActivity : Activity() {
             handler.postDelayed(this, TALKER_POLL_MS)
         }
     }
+
+    private val replayTick = object : Runnable {
+        override fun run() {
+            val t = replayTime ?: return
+            if (!replayPlaying) return
+            val next = t + REPLAY_TICK_MS * REPLAY_SPEEDS[replaySpeedIndex].second
+            if (next >= replayEnd) {
+                setReplayTime(replayEnd)
+                setReplayPlaying(false)
+                return
+            }
+            setReplayTime(next)
+            handler.postDelayed(this, REPLAY_TICK_MS)
+        }
+    }
+
+    private val playbackLimit = Runnable { playNext() }
 
     /** Re-fetches the URL-backed overlays (warnings, TFRs, drone areas) so they stay current. */
     private val overlayRefresh = object : Runnable {
@@ -192,9 +233,10 @@ class PositionMapActivity : Activity() {
         }
         talkBanner = banner(TALK_BG).apply { setOnClickListener { selectedRadio()?.let { showRadio(it) } } }
         historyBar = banner(HISTORY_BG).apply { setOnClickListener { closeHistory() } }
+        playerBar = banner(PLAYER_BG).apply { setOnClickListener { stopPlayback() } }
         val topColumn = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         topColumn.addView(topBar, LinearLayout.LayoutParams(MATCH, WRAP))
-        for (b in listOf(alertBanner, talkBanner, historyBar)) {
+        for (b in listOf(alertBanner, talkBanner, playerBar, historyBar)) {
             topColumn.addView(b, LinearLayout.LayoutParams(MATCH, WRAP).apply {
                 leftMargin = dp(12); rightMargin = dp(12); topMargin = dp(8)
             })
@@ -215,7 +257,13 @@ class PositionMapActivity : Activity() {
         })
 
         bottomBar = buildBottomBar()
-        root.addView(bottomBar, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM))
+        replayPanel = buildReplayPanel()
+        val bottomColumn = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        bottomColumn.addView(replayPanel, LinearLayout.LayoutParams(MATCH, WRAP).apply {
+            leftMargin = dp(10); rightMargin = dp(10); bottomMargin = dp(6)
+        })
+        bottomColumn.addView(bottomBar, LinearLayout.LayoutParams(MATCH, WRAP))
+        root.addView(bottomColumn, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM))
 
         root.setOnApplyWindowInsetsListener { _, insets ->
             val (top, bottom) = systemBarInsets(insets)
@@ -291,12 +339,52 @@ class PositionMapActivity : Activity() {
         }
         val lp = { LinearLayout.LayoutParams(0, WRAP, 1f).apply { leftMargin = dp(4); rightMargin = dp(4) } }
         bar.addView(pill("Units") { showUnits() }, lp())
-        bar.addView(pill("Fit all") { fitAll(animate = true) }, lp())
+        bar.addView(pill("Fit") { fitAll(animate = true) }, lp())
         bar.addView(pill("Me") { centerOnMe() }, lp())
         followButton = pill(followLabel()) { toggleFollow() }
         bar.addView(followButton, lp())
+        bar.addView(pill("Replay") { showRecent() }, lp())
         applyFollowLook()
         return bar
+    }
+
+    private fun buildReplayPanel(): LinearLayout {
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = panel(REPLAY_BG, stroke = STROKE)
+            setPadding(dp(10), dp(6), dp(10), dp(6))
+            visibility = View.GONE
+        }
+        val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        replayTimeText = TextView(this).apply {
+            setTextColor(TEXT)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            typeface = Typeface.DEFAULT_BOLD
+        }
+        top.addView(replayTimeText, LinearLayout.LayoutParams(0, WRAP, 1f))
+        top.addView(pill("✕") { stopTimeline() })
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        replayPlayButton = pill("▶") { setReplayPlaying(!replayPlaying) }
+        row.addView(replayPlayButton)
+        replaySeek = SeekBar(this).apply {
+            max = REPLAY_STEPS
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(bar: SeekBar, progress: Int, fromUser: Boolean) {
+                    if (fromUser) setReplayTime(replayStart + (replayEnd - replayStart) * progress / REPLAY_STEPS, fromSeek = true)
+                }
+                override fun onStartTrackingTouch(bar: SeekBar) { setReplayPlaying(false) }
+                override fun onStopTrackingTouch(bar: SeekBar) {}
+            })
+        }
+        row.addView(replaySeek, LinearLayout.LayoutParams(0, WRAP, 1f))
+        replaySpeedButton = pill(REPLAY_SPEEDS[replaySpeedIndex].first) {
+            replaySpeedIndex = (replaySpeedIndex + 1) % REPLAY_SPEEDS.size
+            replaySpeedButton.text = REPLAY_SPEEDS[replaySpeedIndex].first
+        }
+        row.addView(replaySpeedButton)
+        panel.addView(top)
+        panel.addView(row)
+        return panel
     }
 
     private fun banner(color: Int) = TextView(this).apply {
@@ -481,6 +569,8 @@ class PositionMapActivity : Activity() {
             ),
             PropertyFactory.circleStrokeColor(Color.parseColor("#101418")),
             PropertyFactory.circleStrokeWidth(2f),
+            PropertyFactory.circleOpacity(Expression.toNumber(Expression.get("fade"))),
+            PropertyFactory.circleStrokeOpacity(Expression.toNumber(Expression.get("fade"))),
         ))
         s.addLayer(SymbolLayer(LAYER_LABELS, SRC_UNITS).withProperties(
             PropertyFactory.textField(Expression.get("label")),
@@ -492,6 +582,7 @@ class PositionMapActivity : Activity() {
             PropertyFactory.textAnchor(Property.TEXT_ANCHOR_TOP),
             PropertyFactory.textOffset(arrayOf(0f, 1.0f)),
             PropertyFactory.textAllowOverlap(false),
+            PropertyFactory.textOpacity(Expression.toNumber(Expression.get("fade"))),
         ))
     }
 
@@ -564,7 +655,8 @@ class PositionMapActivity : Activity() {
                 val loaded = PositionLog.units(fixes, since)
                 val all = if (since == 0L) loaded else PositionLog.units(fixes, 0L)
                 val known = TalkerLog.snapshot(context)
-                handler.post { showPositions(fixes, loaded, all, known) }
+                val named = RadioNames.all(context)
+                handler.post { names = named; showPositions(fixes, loaded, all, known) }
             }
         }
     }
@@ -579,6 +671,7 @@ class PositionMapActivity : Activity() {
         allFixes = fixes
         allRadios = all
         talkers = known
+        if (replayTime != null) indexReplay()
         val filter = tgFilter
         radios = if (filter == null) loaded else loaded.filter { talkers[it.source]?.talkgroup == filter }
         renderRadios()
@@ -607,33 +700,44 @@ class PositionMapActivity : Activity() {
         return e > 0L && now - e < EMERGENCY_SHOW_MS
     }
 
-    /** Draws the filtered radios, plus the selected one even when it falls outside them. */
+    /** Draws the filtered radios (or, in timeline replay, where they were then), plus the selected one. */
     private fun renderRadios() {
         val loaded = radios
         val filter = tgFilter
+        val t = replayTime
         countText.text = buildString {
-            append(when (loaded.size) {
-                0 -> getString(R.string.map_count_none)
-                1 -> getString(R.string.map_count_one)
-                else -> getString(R.string.map_count_many, loaded.size)
-            })
+            if (t != null) {
+                append(getString(R.string.map_replay_count, clock(t)))
+            } else {
+                append(when (loaded.size) {
+                    0 -> getString(R.string.map_count_none)
+                    1 -> getString(R.string.map_count_one)
+                    else -> getString(R.string.map_count_many, loaded.size)
+                })
+            }
             if (filter != null) append(" · TG ").append(filter)
         }
-        emptyBanner.visibility = if (loaded.isEmpty() && filter == null) View.VISIBLE else View.GONE
+        emptyBanner.visibility = if (t == null && loaded.isEmpty() && filter == null) View.VISIBLE else View.GONE
         val s = style ?: return
-        val now = System.currentTimeMillis()
-        val selected = selectedRadio()
-        val shown = if (selected != null && loaded.none { it.source == selected.source }) loaded + selected else loaded
+        val now = t ?: System.currentTimeMillis()
+        val shown = if (t != null) {
+            radiosAt(t)
+        } else {
+            val selected = selectedRadio()
+            if (selected != null && loaded.none { it.source == selected.source }) loaded + selected else loaded
+        }
         val points = shown.map { radio ->
             val fix = radio.latest
             val tg = tgOf(radio.source)
+            val age = now - fix.epochMillis
             Feature.fromGeometry(Point.fromLngLat(fix.longitude, fix.latitude)).apply {
                 addStringProperty("source", radio.source.toString())
                 val tgPart = if (tg.isNotEmpty()) " · TG $tg" else ""
-                addStringProperty("label", "${radio.source}$tgPart · ${ageText(now - fix.epochMillis)}")
-                addBooleanProperty("fresh", now - fix.epochMillis < FRESH_MS)
+                addStringProperty("label", "${displayName(radio.source)}$tgPart · ${ageText(age)}")
+                addBooleanProperty("fresh", age < FRESH_MS)
                 addBooleanProperty("selected", radio.source == selectedSource)
-                addBooleanProperty("emergency", isEmergency(radio.source, now))
+                addBooleanProperty("emergency", t == null && isEmergency(radio.source, now))
+                addNumberProperty("fade", fadeFor(age))
             }
         }
         val tracks = shown.filter { it.track.size > 1 && it.source != historySource }.map { radio ->
@@ -642,6 +746,21 @@ class PositionMapActivity : Activity() {
         s.getSourceAs<GeoJsonSource>(SRC_UNITS)?.setGeoJson(FeatureCollection.fromFeatures(points))
         s.getSourceAs<GeoJsonSource>(SRC_TRACKS)?.setGeoJson(FeatureCollection.fromFeatures(tracks))
     }
+
+    /** Full opacity for five minutes, then dimming toward 30 % at the edge of the time window. */
+    private fun fadeFor(ageMs: Long): Double {
+        if (!fadeOld) return 1.0
+        val span = WINDOWS[windowIndex].second.takeIf { it > 0L } ?: FADE_SPAN_ALL_MS
+        if (ageMs <= FADE_START_MS) return 1.0
+        val f = (ageMs - FADE_START_MS).toDouble() / (span - FADE_START_MS).coerceAtLeast(60_000L).toDouble()
+        return (1.0 - 0.7 * f.coerceIn(0.0, 1.0))
+    }
+
+    private fun displayName(id: Long): String = names[id] ?: id.toString()
+
+    private fun fullName(id: Long): String = names[id]?.let { "$it ($id)" } ?: id.toString()
+
+    private fun clock(ms: Long): String = DateFormat.getTimeInstance(DateFormat.MEDIUM).format(Date(ms))
 
     private fun selectedRadio(): PositionLog.Radio? {
         val id = selectedSource ?: return null
@@ -697,7 +816,7 @@ class PositionMapActivity : Activity() {
         val entry = talkers.values.filter { it.emergencyMs > emergencySeenMs }.maxByOrNull { it.emergencyMs } ?: return
         emergencySeenMs = newest
         val tg = if (entry.talkgroup.isNotEmpty()) getString(R.string.map_tg_suffix, entry.talkgroup) else ""
-        alertBanner.text = getString(R.string.map_emergency_banner, entry.source.toString(), tg)
+        alertBanner.text = getString(R.string.map_emergency_banner, fullName(entry.source), tg)
         alertBanner.tag = entry.source
         alertBanner.visibility = View.VISIBLE
         handler.postDelayed({ if (!isDestroyed) alertBanner.visibility = View.GONE }, EMERGENCY_BANNER_MS)
@@ -830,7 +949,7 @@ class PositionMapActivity : Activity() {
             val tg = tgOf(r.source)
             val tgPart = if (tg.isNotEmpty()) "  TG $tg" else ""
             val emergency = if (isEmergency(r.source, now)) "  ⚠" else ""
-            "${r.source}$tgPart   ${ageText(now - r.latest.epochMillis)} ago$emergency"
+            "${fullName(r.source)}$tgPart   ${ageText(now - r.latest.epochMillis)} ago$emergency"
         }.toTypedArray()
         dialog()
             .setTitle(getString(R.string.map_units_title, radios.size))
@@ -872,20 +991,31 @@ class PositionMapActivity : Activity() {
             if (distance != null) append("\nDistance from you: ").append(distance)
         }
         dialog()
-            .setTitle(getString(R.string.map_radio_title, radio.source.toString()))
+            .setTitle(getString(R.string.map_radio_title, fullName(radio.source)))
             .setMessage(body)
             .setPositiveButton(R.string.map_history_button) { _, _ -> chooseHistory(radio) }
-            .setNeutralButton(R.string.map_copy) { _, _ ->
-                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                cm.setPrimaryClip(ClipData.newPlainText("position", coords))
-                toast(getString(R.string.map_copied))
+            .setNeutralButton(R.string.map_more) { _, _ ->
+                val actions = arrayOf(
+                    getString(if (names.containsKey(radio.source)) R.string.map_rename else R.string.map_name_radio),
+                    getString(R.string.map_copy),
+                    getString(R.string.map_open_in_maps),
+                )
+                dialog().setTitle(fullName(radio.source)).setItems(actions) { _, which ->
+                    when (which) {
+                        0 -> editName(radio.source)
+                        1 -> {
+                            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            cm.setPrimaryClip(ClipData.newPlainText("position", coords))
+                            toast(getString(R.string.map_copied))
+                        }
+                        2 -> runCatching {
+                            startActivity(Intent(Intent.ACTION_VIEW,
+                                Uri.parse("geo:${fix.latitude},${fix.longitude}?q=${fix.latitude},${fix.longitude}(${Uri.encode(displayName(radio.source))})")))
+                        }.onFailure { toast(getString(R.string.map_no_maps_app)) }
+                    }
+                }.show()
             }
-            .setNegativeButton(R.string.map_open_in_maps) { _, _ ->
-                runCatching {
-                    startActivity(Intent(Intent.ACTION_VIEW,
-                        Uri.parse("geo:${fix.latitude},${fix.longitude}?q=${fix.latitude},${fix.longitude}(Radio%20${radio.source})")))
-                }.onFailure { toast(getString(R.string.map_no_maps_app)) }
-            }
+            .setNegativeButton(R.string.map_close, null)
             .show()
     }
 
@@ -923,6 +1053,9 @@ class PositionMapActivity : Activity() {
             getString(R.string.map_menu_overlays, overlays.size),
             getString(R.string.map_menu_radar, RADARS[radar]?.label ?: getString(R.string.map_off)),
             getString(R.string.map_menu_tg, tgFilter?.let { "TG $it" } ?: getString(R.string.map_all)),
+            getString(R.string.map_menu_names, names.size),
+            getString(R.string.map_menu_timeline),
+            getString(if (fadeOld) R.string.map_menu_fade_on else R.string.map_menu_fade_off),
             getString(R.string.map_menu_export),
             getString(R.string.map_menu_cache, cacheMb),
         )
@@ -932,8 +1065,11 @@ class PositionMapActivity : Activity() {
                 1 -> chooseOverlays()
                 2 -> chooseRadar()
                 3 -> chooseTalkgroup()
-                4 -> chooseExport()
-                5 -> chooseCache()
+                4 -> showNames()
+                5 -> startTimeline()
+                6 -> { fadeOld = !fadeOld; savePreferences(); renderRadios() }
+                7 -> chooseExport()
+                8 -> chooseCache()
             }
         }.setNegativeButton(android.R.string.cancel, null).show()
     }
@@ -1083,27 +1219,319 @@ class PositionMapActivity : Activity() {
                         toast(getString(R.string.map_export_failed))
                         return@post
                     }
-                    runCatching {
-                        val uri = FileProvider.getUriForFile(this, "$packageName.diagnostics", file)
-                        val send = Intent(Intent.ACTION_SEND).apply {
-                            type = format.mime
-                            putExtra(Intent.EXTRA_STREAM, uri)
-                            putExtra(Intent.EXTRA_SUBJECT, file.name)
-                            clipData = ClipData.newRawUri(file.name, uri)
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        }
-                        startActivity(Intent.createChooser(send, getString(R.string.map_export_title)))
-                    }.onFailure { toast(getString(R.string.map_export_failed)) }
+                    shareFile(file, format.mime)
                 }
             }
         }
+    }
+
+    private fun shareFile(file: File, mime: String) {
+        runCatching {
+            val uri = FileProvider.getUriForFile(this, "$packageName.diagnostics", file)
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = mime
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_SUBJECT, file.name)
+                clipData = ClipData.newRawUri(file.name, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(send, file.name))
+        }.onFailure { toast(getString(R.string.map_export_failed)) }
+    }
+
+    private fun exportsDir(): File = File(cacheDir, "exports").apply { mkdirs() }
+
+    // ---- Radio names ---------------------------------------------------------------------
+
+    private fun showNames() {
+        val all = RadioNames.all(this).entries.sortedBy { it.value.lowercase(Locale.getDefault()) }
+        val items = all.map { "${it.value}  (${it.key})" }.toTypedArray()
+        val b = dialog().setTitle(getString(R.string.map_names_title, all.size))
+        if (items.isEmpty()) b.setMessage(R.string.map_names_empty) else b.setItems(items) { _, which -> editName(all[which].key) }
+        b.setPositiveButton(R.string.map_names_add) { _, _ -> addName() }
+            .setNeutralButton(R.string.map_names_import_export) { _, _ -> namesImportExport() }
+            .setNegativeButton(R.string.map_close, null)
+            .show()
+    }
+
+    private fun field(hint: String, value: String, numeric: Boolean): EditText = EditText(this).apply {
+        this.hint = hint
+        setText(value)
+        setSingleLine()
+        inputType = if (numeric) InputType.TYPE_CLASS_NUMBER else InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS
+    }
+
+    private fun boxOf(vararg views: View): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(20), dp(8), dp(20), 0)
+        views.forEach { addView(it) }
+    }
+
+    private fun addName() {
+        val idField = field(getString(R.string.map_names_id_hint), "", numeric = true)
+        val nameField = field(getString(R.string.map_names_name_hint), "", numeric = false)
+        dialog().setTitle(R.string.map_names_add).setView(boxOf(idField, nameField))
+            .setPositiveButton(R.string.map_save) { _, _ ->
+                val id = idField.text.toString().trim().toLongOrNull()
+                val name = nameField.text.toString()
+                if (id == null || id <= 0L || RadioNames.clean(name).isEmpty()) {
+                    toast(getString(R.string.map_names_invalid))
+                } else {
+                    RadioNames.set(this, id, name)
+                    namesChanged()
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null).show()
+    }
+
+    private fun editName(id: Long) {
+        val current = RadioNames.get(this, id).orEmpty()
+        val nameField = field(getString(R.string.map_names_name_hint), current, numeric = false)
+        val b = dialog().setTitle(getString(R.string.map_names_edit_title, id.toString())).setView(boxOf(nameField))
+            .setPositiveButton(R.string.map_save) { _, _ ->
+                RadioNames.set(this, id, nameField.text.toString())
+                namesChanged()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+        if (current.isNotEmpty()) {
+            b.setNeutralButton(R.string.map_names_delete) { _, _ ->
+                RadioNames.remove(this, id)
+                namesChanged()
+            }
+        }
+        b.show()
+        nameField.requestFocus()
+    }
+
+    private fun namesChanged() {
+        names = RadioNames.all(this)
+        renderRadios()
+        toast(getString(R.string.map_names_saved))
+    }
+
+    private fun namesImportExport() {
+        val actions = arrayOf(getString(R.string.map_names_import), getString(R.string.map_names_export))
+        dialog().setTitle(R.string.map_names_import_export).setItems(actions) { _, which ->
+            if (which == 0) {
+                val pick = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "*/*"
+                    putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("text/csv", "text/comma-separated-values", "text/plain", "application/vnd.ms-excel"))
+                }
+                runCatching { startActivityForResult(pick, REQ_IMPORT_NAMES) }.onFailure { toast(getString(R.string.map_names_import_failed)) }
+            } else {
+                val file = File(exportsDir(), "sigsense-radio-names.csv")
+                runCatching { file.writeText(RadioNames.exportCsv(this)) }
+                    .onSuccess { shareFile(file, "text/csv") }
+                    .onFailure { toast(getString(R.string.map_export_failed)) }
+            }
+        }.setNegativeButton(android.R.string.cancel, null).show()
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        @Suppress("DEPRECATION")
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQ_IMPORT_NAMES || resultCode != RESULT_OK) return
+        val uri = data?.data ?: return
+        val context = applicationContext
+        runCatching {
+            io.execute {
+                val count = runCatching {
+                    val text = context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }.orEmpty()
+                    RadioNames.importCsv(context, text)
+                }.getOrDefault(-1)
+                handler.post {
+                    if (count < 0) {
+                        toast(getString(R.string.map_names_import_failed))
+                    } else {
+                        names = RadioNames.all(this)
+                        renderRadios()
+                        toast(getString(R.string.map_names_imported, count))
+                    }
+                }
+            }
+        }
+    }
+
+    // ---- Timeline replay -----------------------------------------------------------------
+
+    private fun startTimeline() {
+        val since = windowStart()
+        val fixes = allFixes.filter { it.epochMillis >= since }
+        if (fixes.isEmpty()) {
+            toast(getString(R.string.map_count_none))
+            return
+        }
+        closeHistory()
+        talkBanner.visibility = View.GONE
+        replayStart = fixes.minOf { it.epochMillis }
+        replayEnd = maxOf(System.currentTimeMillis(), fixes.maxOf { it.epochMillis })
+        replayTime = replayStart
+        indexReplay()
+        replayPanel.visibility = View.VISIBLE
+        setReplayTime(replayStart)
+        setReplayPlaying(true)
+    }
+
+    private fun indexReplay() {
+        replayBySource = allFixes.filter { it.epochMillis >= replayStart }.groupBy { it.source }
+            .mapValues { (_, list) -> list.sortedBy { it.epochMillis } }
+    }
+
+    private fun stopTimeline() {
+        setReplayPlaying(false)
+        replayTime = null
+        replayPanel.visibility = View.GONE
+        renderRadios()
+    }
+
+    private fun setReplayPlaying(playing: Boolean) {
+        replayPlaying = playing && replayTime != null
+        if (::replayPlayButton.isInitialized) replayPlayButton.text = if (replayPlaying) "⏸" else "▶"
+        handler.removeCallbacks(replayTick)
+        if (replayPlaying) {
+            if ((replayTime ?: 0L) >= replayEnd) setReplayTime(replayStart)
+            handler.postDelayed(replayTick, REPLAY_TICK_MS)
+        }
+    }
+
+    private fun setReplayTime(t: Long, fromSeek: Boolean = false) {
+        if (replayTime == null) return
+        replayTime = t.coerceIn(replayStart, replayEnd)
+        replayTimeText.text = getString(R.string.map_replay_time, clock(replayTime!!))
+        if (!fromSeek && replayEnd > replayStart) {
+            replaySeek.progress = ((replayTime!! - replayStart) * REPLAY_STEPS / (replayEnd - replayStart)).toInt()
+        }
+        renderRadios()
+    }
+
+    /** Each radio's last fix at or before [t], with its trail of the fixes before it. */
+    private fun radiosAt(t: Long): List<PositionLog.Radio> = replayBySource.mapNotNull { (source, fixes) ->
+        if (tgFilter != null && tgOf(source) != tgFilter) return@mapNotNull null
+        var lo = 0
+        var hi = fixes.size - 1
+        var idx = -1
+        while (lo <= hi) {
+            val mid = (lo + hi) ushr 1
+            if (fixes[mid].epochMillis <= t) { idx = mid; lo = mid + 1 } else hi = mid - 1
+        }
+        if (idx < 0) null else PositionLog.Radio(source, fixes[idx], fixes.subList(maxOf(0, idx - 9), idx + 1), idx + 1)
+    }
+
+    // ---- Instant replay ------------------------------------------------------------------
+
+    private fun showRecent() {
+        val context = applicationContext
+        runCatching {
+            io.execute {
+                RecentCalls.maintain(context)
+                val calls = RecentCalls.list(context)
+                handler.post { if (!isDestroyed) showRecentList(calls) }
+            }
+        }
+    }
+
+    private fun callLabel(c: RecentCalls.Call): String {
+        val time = DateFormat.getTimeInstance(DateFormat.MEDIUM).format(Date(c.startMs))
+        val secs = ((c.durationMs + 500) / 1000).coerceAtMost(RecentCalls.MAX_SECONDS.toLong())
+        val who = c.sourceId?.let { fullName(it) } ?: c.source.ifEmpty { getString(R.string.map_replay_analog) }
+        val where = when {
+            c.analog -> if (c.talkgroup.isNotEmpty()) " · ${c.talkgroup}" else ""
+            c.group -> " → TG ${c.talkgroup}"
+            else -> " → ${c.talkgroup}"
+        }
+        return "$time  $who$where  · ${secs}s"
+    }
+
+    private fun showRecentList(calls: List<RecentCalls.Call>) {
+        val keep = RecentCalls.keepCount(this)
+        val b = dialog().setTitle(getString(R.string.map_recent_title, calls.size))
+        if (calls.isEmpty()) {
+            b.setMessage(R.string.map_recent_empty)
+        } else {
+            b.setItems(calls.map { callLabel(it) }.toTypedArray()) { _, which ->
+                playQueue.clear()
+                play(calls[which])
+            }
+            b.setPositiveButton(R.string.map_recent_play_all) { _, _ ->
+                playQueue.clear()
+                playQueue.addAll(calls.reversed())
+                playNext()
+            }
+        }
+        b.setNeutralButton(getString(R.string.map_recent_keep, keep)) { _, _ -> chooseKeep() }
+            .setNegativeButton(R.string.map_close, null)
+            .show()
+    }
+
+    private fun chooseKeep() {
+        val options = listOf(5, 10)
+        val current = RecentCalls.keepCount(this)
+        dialog().setTitle(R.string.map_recent_keep_title)
+            .setSingleChoiceItems(options.map { getString(R.string.map_recent_keep_item, it) }.toTypedArray(),
+                options.indexOf(current).coerceAtLeast(0)) { d, which ->
+                d.dismiss()
+                getSharedPreferences(RecentCalls.PREFS, MODE_PRIVATE).edit().putInt(RecentCalls.KEY_KEEP, options[which]).apply()
+                showRecent()
+            }.show()
+    }
+
+    private fun playNext() {
+        val next = playQueue.removeFirstOrNull()
+        if (next == null) {
+            stopPlayback()
+            return
+        }
+        play(next)
+    }
+
+    private fun play(call: RecentCalls.Call) {
+        releasePlayer()
+        if (!call.file.isFile) {
+            playNext()
+            return
+        }
+        val mp = MediaPlayer()
+        player = mp
+        runCatching {
+            mp.setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+            mp.setDataSource(call.file.absolutePath)
+            mp.setOnCompletionListener { handler.post { playNext() } }
+            mp.setOnErrorListener { _, _, _ -> handler.post { playNext() }; true }
+            mp.prepare()
+            mp.start()
+        }.onFailure {
+            toast(getString(R.string.map_recent_play_failed))
+            releasePlayer()
+            return
+        }
+        val remaining = if (playQueue.isEmpty()) "" else getString(R.string.map_recent_more, playQueue.size)
+        playerBar.text = getString(R.string.map_recent_playing, callLabel(call), remaining)
+        playerBar.visibility = View.VISIBLE
+        handler.removeCallbacks(playbackLimit)
+        handler.postDelayed(playbackLimit, RecentCalls.MAX_SECONDS * 1000L)
+        call.sourceId?.let { id -> allRadios.firstOrNull { it.source == id }?.let { select(it, fly = true) } }
+    }
+
+    private fun releasePlayer() {
+        handler.removeCallbacks(playbackLimit)
+        player?.let { runCatching { it.stop() }; runCatching { it.release() } }
+        player = null
+    }
+
+    private fun stopPlayback() {
+        playQueue.clear()
+        releasePlayer()
+        if (::playerBar.isInitialized) playerBar.visibility = View.GONE
     }
 
     // ---- Find ----------------------------------------------------------------------------
 
     private fun showFind() {
         val input = EditText(this).apply {
-            inputType = InputType.TYPE_CLASS_NUMBER
+            inputType = InputType.TYPE_CLASS_TEXT
             hint = getString(R.string.map_find_hint)
             setSingleLine()
         }
@@ -1132,13 +1560,16 @@ class PositionMapActivity : Activity() {
             showRadio(exact)
             return
         }
-        val matches = allRadios.filter { it.source.toString().contains(query) }
+        val q = query.lowercase(Locale.getDefault())
+        val matches = allRadios.filter {
+            it.source.toString().contains(query) || (names[it.source]?.lowercase(Locale.getDefault())?.contains(q) == true)
+        }
         when (matches.size) {
             0 -> toast(getString(R.string.map_find_none, query))
             1 -> { select(matches[0], fly = true); showRadio(matches[0]) }
             else -> {
                 val now = System.currentTimeMillis()
-                val items = matches.map { "${it.source}   ${ageText(now - it.latest.epochMillis)} ago" }.toTypedArray()
+                val items = matches.map { "${fullName(it.source)}   ${ageText(now - it.latest.epochMillis)} ago" }.toTypedArray()
                 dialog()
                     .setTitle(getString(R.string.map_find_matches, matches.size, query))
                     .setItems(items) { _, which -> select(matches[which], fly = true); showRadio(matches[which]) }
@@ -1190,14 +1621,14 @@ class PositionMapActivity : Activity() {
     }
 
     private fun onTalker(active: Boolean, id: Long?, srcText: String, tgText: String) {
-        if (isFinishing || isDestroyed || !followTalker) return
+        if (isFinishing || isDestroyed || !followTalker || replayTime != null) return
         if (!active) {
             // Between transmissions: the next key-up re-centres, even by the same radio.
             talkBanner.visibility = View.GONE
             followedSource = null
             return
         }
-        val who = srcText.trim().ifBlank { id?.toString() ?: "?" }
+        val who = id?.let { names[it] }?.let { fullName(id) } ?: srcText.trim().ifBlank { id?.toString() ?: "?" }
         val tg = tgText.trim().ifBlank { "?" }
         val radio = id?.let { wanted -> allRadios.firstOrNull { it.source == wanted } }
         talkBanner.text = if (radio != null) {
@@ -1309,6 +1740,7 @@ class PositionMapActivity : Activity() {
         p.getStringSet(KEY_OVERLAYS, emptySet())?.filter { id -> OVERLAYS.any { it.id == id } }?.let { overlays.addAll(it) }
         radar = p.getString(KEY_RADAR, "off")?.takeIf { it == "off" || it in RADARS } ?: "off"
         cacheMb = p.getInt(KEY_CACHE, 512)
+        fadeOld = p.getBoolean(KEY_FADE, true)
     }
 
     private fun savePreferences() {
@@ -1316,7 +1748,7 @@ class PositionMapActivity : Activity() {
             .putString(KEY_BASE, baseMap).putInt(KEY_WINDOW, windowIndex)
             .putBoolean(KEY_FOLLOW, followTalker).putString(KEY_TG, tgFilter ?: "")
             .putStringSet(KEY_OVERLAYS, LinkedHashSet(overlays)).putString(KEY_RADAR, radar)
-            .putInt(KEY_CACHE, cacheMb).apply()
+            .putInt(KEY_CACHE, cacheMb).putBoolean(KEY_FADE, fadeOld).apply()
     }
 
     // ---- Lifecycle -----------------------------------------------------------------------
@@ -1341,6 +1773,8 @@ class PositionMapActivity : Activity() {
         handler.removeCallbacks(poll)
         handler.removeCallbacks(talkerPoll)
         handler.removeCallbacks(overlayRefresh)
+        setReplayPlaying(false)
+        stopPlayback()
         stopLocationUpdates()
         mapView.onPause()
         super.onPause()
@@ -1394,6 +1828,14 @@ class PositionMapActivity : Activity() {
         private const val KEY_OVERLAYS = "overlays"
         private const val KEY_RADAR = "radar"
         private const val KEY_CACHE = "cache_mb"
+        private const val KEY_FADE = "fade_old"
+        private const val REQ_IMPORT_NAMES = 4102
+        private const val FADE_START_MS = 5 * 60_000L
+        private const val FADE_SPAN_ALL_MS = 2 * 60 * 60_000L
+        private const val REPLAY_TICK_MS = 200L
+        private const val REPLAY_STEPS = 1000
+        /** Label and how many seconds of history one second of playback covers. */
+        private val REPLAY_SPEEDS = listOf("30×" to 30L, "120×" to 120L, "600×" to 600L, "3600×" to 3600L)
         private const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
         private const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
 
@@ -1423,6 +1865,8 @@ class PositionMapActivity : Activity() {
         private val HISTORY_BG = Color.parseColor("#E64527A0")
         private val FOLLOW_ON = Color.parseColor("#E6006064")
         private val FOLLOW_STROKE = Color.parseColor("#00E5FF")
+        private val PLAYER_BG = Color.parseColor("#E6006E3D")
+        private val REPLAY_BG = Color.parseColor("#F01A2129")
 
         /** Label and how far back it reaches (0 = everything kept in the file). */
         private val WINDOWS = listOf(
