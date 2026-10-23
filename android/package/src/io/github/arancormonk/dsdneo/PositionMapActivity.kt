@@ -643,7 +643,7 @@ class PositionMapActivity : Activity() {
             addLayerSafely(s, CircleLayer(DOT_LAYERS[i], DOT_SOURCES[i]).withProperties(
                 PropertyFactory.circleRadius(8f),
                 PropertyFactory.circleColor(DOT_COLORS[i]),
-                PropertyFactory.circleStrokeColor(Color.parseColor("#07111F")),
+                PropertyFactory.circleStrokeColor(Color.parseColor("#03060B")),
                 PropertyFactory.circleStrokeWidth(2f),
             ))
         }
@@ -852,7 +852,7 @@ class PositionMapActivity : Activity() {
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
                     setShadowLayer(4f, 0f, 1f, Color.BLACK)
                     background = GradientDrawable().apply {
-                        setColor(Color.parseColor("#B307111F"))
+                        setColor(Color.parseColor("#B303060B"))
                         cornerRadius = dp(6).toFloat()
                     }
                     setPadding(dp(5), dp(1), dp(5), dp(2))
@@ -2130,19 +2130,19 @@ class PositionMapActivity : Activity() {
         private const val LAYER_HISTORY_PTS = "sig-history-pts-layer"
         private const val LAYER_HISTORY_LABELS = "sig-history-labels"
 
-        private val BG = Color.parseColor("#07111F")
-        private val BAR = Color.parseColor("#E607111F")
-        private val PANEL = Color.parseColor("#E60C1A2E")
+        private val BG = Color.parseColor("#03060B")
+        private val BAR = Color.parseColor("#E603060B")
+        private val PANEL = Color.parseColor("#E60A111C")
         private val STROKE = Color.parseColor("#33FFFFFF")
-        private val TEXT = Color.parseColor("#E8EFF9")
-        private val MUTED = Color.parseColor("#9FB3D1")
+        private val TEXT = Color.parseColor("#F2F6FA")
+        private val MUTED = Color.parseColor("#A9B8CC")
         private val TALK_BG = Color.parseColor("#E6B71C1C")
         private val ALERT_BG = Color.parseColor("#F2D50000")
         private val HISTORY_BG = Color.parseColor("#E64527A0")
-        private val FOLLOW_ON = Color.parseColor("#E61458C4")
-        private val FOLLOW_STROKE = Color.parseColor("#F5C242")
+        private val FOLLOW_ON = Color.parseColor("#E60A5CFF")
+        private val FOLLOW_STROKE = Color.parseColor("#1FC8FF")
         private val PLAYER_BG = Color.parseColor("#E6006E3D")
-        private val REPLAY_BG = Color.parseColor("#F00C1A2E")
+        private val REPLAY_BG = Color.parseColor("#F00A111C")
 
         /** Label and how far back it reaches (0 = everything kept in the file). */
         private val WINDOWS = listOf(

@@ -3,8 +3,8 @@
 
 import QtQuick
 
-// The app mark (WTDW Tracker): a map pin with radio waves, in the theme's blue
-// with a gold centre, inside a panel square. Drawn, not an image, so both
+// The app mark (WTDW Tracker): the lattice tower and radio waves from the WTDW
+// logo, inside a panel square. Drawn, not an image, so both
 // themes get it for free.
 UiPanel {
     implicitWidth: 62
@@ -18,29 +18,37 @@ UiPanel {
         onPaint: {
             const ctx = getContext("2d");
             ctx.reset();
-            const cx = width / 2, cy = height * 0.44, r = width * 0.17, tip = height * 0.95;
-            // Waves either side of the pin head.
-            ctx.strokeStyle = Theme.textPrimary;
+            const cx = width / 2, top = height * 0.30, base = height * 0.97, ball = width * 0.075;
+            // Waves either side of the tower top, cyan fading to blue like the WTDW logo.
             ctx.lineCap = "round";
-            ctx.lineWidth = width * 0.065;
-            [1.55, 2.15].forEach(function (k) {
-                const R = r * k;
-                ctx.beginPath(); ctx.arc(cx, cy, R, -62 * Math.PI / 180, -18 * Math.PI / 180, false); ctx.stroke();
-                ctx.beginPath(); ctx.arc(cx, cy, R, 198 * Math.PI / 180, 242 * Math.PI / 180, false); ctx.stroke();
-            });
-            // Pin: head circle joined to the tip by its two tangents.
-            const a = Math.asin(r / (tip - cy));
-            const grad = ctx.createLinearGradient(0, cy - r, 0, tip);
+            ctx.lineWidth = width * 0.055;
+            const grad = ctx.createLinearGradient(0, 0, 0, height * 0.6);
             grad.addColorStop(0, Theme.cyan);
-            grad.addColorStop(1, Qt.darker(Theme.cyan, 1.5));
-            ctx.fillStyle = grad;
+            grad.addColorStop(1, Theme.magenta);
+            ctx.strokeStyle = grad;
+            [0.16, 0.26, 0.36].forEach(function (k) {
+                const R = width * k;
+                ctx.beginPath(); ctx.arc(cx, top, R, -50 * Math.PI / 180, 42 * Math.PI / 180, false); ctx.stroke();
+                ctx.beginPath(); ctx.arc(cx, top, R, 138 * Math.PI / 180, 230 * Math.PI / 180, false); ctx.stroke();
+            });
+            // Lattice tower: two legs, cross braces, ball on top.
+            const half = width * 0.21, apexY = top + ball * 0.6;
+            function leg(t, side) { return [cx + side * half * t, apexY + (base - apexY) * t]; }
+            ctx.strokeStyle = Theme.textPrimary;
+            ctx.lineWidth = width * 0.045;
+            ctx.beginPath(); ctx.moveTo(cx, apexY); ctx.lineTo(cx - half, base); ctx.moveTo(cx, apexY); ctx.lineTo(cx + half, base); ctx.stroke();
+            ctx.lineWidth = width * 0.035;
+            const ts = [0.12, 0.34, 0.62, 1.0];
             ctx.beginPath();
-            ctx.moveTo(cx, tip);
-            ctx.arc(cx, cy, r, Math.PI / 2 + a, Math.PI / 2 - a, false);
-            ctx.closePath();
-            ctx.fill();
-            ctx.fillStyle = Theme.magenta;
-            ctx.beginPath(); ctx.arc(cx, cy, r * 0.42, 0, 2 * Math.PI); ctx.fill();
+            for (let i = 0; i < ts.length - 1; ++i) {
+                const a = leg(ts[i], -1), b = leg(ts[i], 1), c = leg(ts[i + 1], -1), d = leg(ts[i + 1], 1);
+                ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]);
+                ctx.moveTo(a[0], a[1]); ctx.lineTo(d[0], d[1]);
+                ctx.moveTo(b[0], b[1]); ctx.lineTo(c[0], c[1]);
+            }
+            ctx.stroke();
+            ctx.fillStyle = Theme.textPrimary;
+            ctx.beginPath(); ctx.arc(cx, top, ball, 0, 2 * Math.PI); ctx.fill();
         }
         Connections {
             target: Theme
