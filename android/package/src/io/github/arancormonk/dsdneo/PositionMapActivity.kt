@@ -24,6 +24,10 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.text.InputType
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.RelativeSizeSpan
+import android.text.style.StyleSpan
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -91,6 +95,10 @@ class PositionMapActivity : Activity() {
     private lateinit var historyBar: TextView
     private lateinit var followButton: Button
     private lateinit var playerBar: TextView
+    /** Radio ID labels, drawn as Android views over the map so they never depend on map fonts. */
+    private lateinit var labelLayer: FrameLayout
+    private val labelViews = HashMap<Long, TextView>()
+    private var labelRadios: List<PositionLog.Radio> = emptyList()
     private lateinit var replayPanel: LinearLayout
     private lateinit var replaySeek: SeekBar
     private lateinit var replayTimeText: TextView
@@ -229,6 +237,8 @@ class PositionMapActivity : Activity() {
         root.setBackgroundColor(BG)
         mapView = MapView(this)
         root.addView(mapView, FrameLayout.LayoutParams(MATCH, MATCH))
+        labelLayer = FrameLayout(this).apply { clipChildren = true }
+        root.addView(labelLayer, FrameLayout.LayoutParams(MATCH, MATCH))
 
         topBar = buildTopBar()
         alertBanner = banner(ALERT_BG).apply {
@@ -291,7 +301,8 @@ class PositionMapActivity : Activity() {
             readyMap.cameraPosition = org.maplibre.android.camera.CameraPosition.Builder()
                 .target(LatLng(36.3, -88.3)).zoom(9.0).build()
             readyMap.addOnMapClickListener { point -> onMapClick(readyMap, point) }
-            readyMap.addOnCameraIdleListener { refreshLiveOverlays() }
+            readyMap.addOnCameraIdleListener { refreshLiveOverlays(); positionLabels() }
+            readyMap.addOnCameraMoveListener { positionLabels() }
             applyStyle()
         }
     }
@@ -631,17 +642,6 @@ class PositionMapActivity : Activity() {
                 PropertyFactory.circleStrokeWidth(2f),
             ))
         }
-        addLayerSafely(s, SymbolLayer(LAYER_LABELS, SRC_UNITS).withProperties(
-            PropertyFactory.textField(Expression.get("label")),
-            PropertyFactory.textFont(arrayOf("Open Sans Regular")),
-            PropertyFactory.textSize(12f),
-            PropertyFactory.textColor(Color.WHITE),
-            PropertyFactory.textHaloColor(Color.parseColor("#CC000000")),
-            PropertyFactory.textHaloWidth(1.5f),
-            PropertyFactory.textAnchor(Property.TEXT_ANCHOR_TOP),
-            PropertyFactory.textOffset(arrayOf(0f, 1.0f)),
-            PropertyFactory.textAllowOverlap(false),
-        ))
         if (DOT_LAYERS.any { s.getLayer(it) == null }) mapProblems += "a dots layer is missing after setup"
     }
 
@@ -822,6 +822,67 @@ class PositionMapActivity : Activity() {
             lastRenderSkipped = "setGeoJson: ${e.javaClass.simpleName}: ${e.message}"
         }
         runCatching { s.getSourceAs<GeoJsonSource>(SRC_TRACKS)?.setGeoJson(collectionJson(tracks)) }
+        updateLabels(shown)
+    }
+
+    // ---- Radio ID labels -----------------------------------------------------------------
+
+    /** One label per radio: the ID in bold, and under it the name the user gave it, if any. */
+    private fun updateLabels(shown: List<PositionLog.Radio>) {
+        labelRadios = shown
+        val keep = shown.map { it.source }.toSet()
+        val gone = labelViews.keys.filter { it !in keep }
+        for (id in gone) labelViews.remove(id)?.let { labelLayer.removeView(it) }
+        for (radio in shown) {
+            val id = radio.source
+            val view = labelViews.getOrPut(id) {
+                TextView(this).apply {
+                    setTextColor(TEXT)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                    setShadowLayer(4f, 0f, 1f, Color.BLACK)
+                    background = GradientDrawable().apply {
+                        setColor(Color.parseColor("#B3101418"))
+                        cornerRadius = dp(6).toFloat()
+                    }
+                    setPadding(dp(5), dp(1), dp(5), dp(2))
+                    includeFontPadding = false
+                    setOnClickListener {
+                        allRadios.firstOrNull { it.source == id }?.let { r -> select(r, fly = false); showRadio(r) }
+                    }
+                }.also { labelLayer.addView(it, FrameLayout.LayoutParams(WRAP, WRAP)) }
+            }
+            val text = SpannableStringBuilder(id.toString())
+            text.setSpan(StyleSpan(Typeface.BOLD), 0, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            names[id]?.let { alias ->
+                val start = text.length + 1
+                text.append('\n').append(alias)
+                text.setSpan(RelativeSizeSpan(0.9f), start, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+            if (view.text.toString() != text.toString()) view.text = text
+        }
+        positionLabels()
+        // New labels have no size until laid out; place them again once they do.
+        labelLayer.post { positionLabels() }
+    }
+
+    /** Pins each label just right of its dot; called whenever the camera moves. */
+    private fun positionLabels() {
+        val readyMap = map ?: return
+        if (!::labelLayer.isInitialized) return
+        val w = labelLayer.width
+        val h = labelLayer.height
+        for (radio in labelRadios) {
+            val view = labelViews[radio.source] ?: continue
+            val p = runCatching { readyMap.projection.toScreenLocation(LatLng(radio.latest.latitude, radio.latest.longitude)) }.getOrNull()
+            if (p == null || p.x < -dp(40) || p.y < -dp(40) || p.x > w + dp(40) || p.y > h + dp(40)) {
+                view.visibility = View.INVISIBLE
+                continue
+            }
+            view.visibility = View.VISIBLE
+            val vh = if (view.height > 0) view.height else dp(18)
+            view.translationX = p.x + dp(11)
+            view.translationY = p.y - vh / 2f
+        }
     }
 
     /** 0 = green (under 3 min), 1 = yellow (3–5 min), 2 = red (older than 5 min). */
@@ -855,7 +916,7 @@ class PositionMapActivity : Activity() {
     private fun showDiagnostics() {
         val s = style
         val layerIds = listOf(LAYER_TRACKS, LAYER_HISTORY_LINE, LAYER_HISTORY_PTS, LAYER_HISTORY_LABELS, LAYER_ME,
-            LAYER_EMERGENCY, LAYER_SELECTED) + DOT_LAYERS + LAYER_LABELS
+            LAYER_EMERGENCY, LAYER_SELECTED) + DOT_LAYERS
         val body = buildString {
             append("Style loaded: ").append(if (s != null) "yes ($styleLoads)" else "no").append('\n')
             append("Radios in window: ").append(radios.size).append(" · all: ").append(allRadios.size).append('\n')
@@ -1005,7 +1066,7 @@ class PositionMapActivity : Activity() {
 
     private fun onMapClick(readyMap: MapLibreMap, point: LatLng): Boolean {
         val screen: PointF = readyMap.projection.toScreenLocation(point)
-        val dotHits = readyMap.queryRenderedFeatures(screen, *(DOT_LAYERS + LAYER_LABELS).toTypedArray())
+        val dotHits = readyMap.queryRenderedFeatures(screen, *DOT_LAYERS.toTypedArray())
         if (dotHits.isNotEmpty()) {
             // By the feature's own ID when it carries one, else the radio drawn nearest the tap.
             val src = runCatching { dotHits.first().getStringProperty("source") }.getOrNull()
@@ -1982,7 +2043,6 @@ class PositionMapActivity : Activity() {
         private const val SRC_ME = "sig-me"
         private const val SRC_HISTORY_LINE = "sig-history-line"
         private const val SRC_HISTORY_PTS = "sig-history-pts"
-        private const val LAYER_LABELS = "sig-units-labels"
         private const val LAYER_TRACKS = "sig-tracks-lines"
         private const val LAYER_ME = "sig-me-dot"
         private const val LAYER_SELECTED = "sig-units-selected"
