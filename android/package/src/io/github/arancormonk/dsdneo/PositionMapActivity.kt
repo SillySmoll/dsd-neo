@@ -585,26 +585,26 @@ class PositionMapActivity : Activity() {
             PropertyFactory.circleColor(Color.parseColor("#55FF1744")),
             PropertyFactory.circleStrokeColor(Color.parseColor("#FF1744")),
             PropertyFactory.circleStrokeWidth(3f),
-        ).withFilter(Expression.toBool(Expression.get("emergency"))))
+        ).withFilter(Expression.coalesce(Expression.get("emergency"), Expression.literal(false))))
         addLayerSafely(s, CircleLayer(LAYER_SELECTED, SRC_UNITS).withProperties(
             PropertyFactory.circleRadius(16f),
             PropertyFactory.circleColor(Color.parseColor("#3300E5FF")),
             PropertyFactory.circleStrokeColor(Color.parseColor("#00E5FF")),
             PropertyFactory.circleStrokeWidth(3f),
-        ).withFilter(Expression.toBool(Expression.get("selected"))))
+        ).withFilter(Expression.coalesce(Expression.get("selected"), Expression.literal(false))))
         addLayerSafely(s, CircleLayer(LAYER_UNITS, SRC_UNITS).withProperties(
             PropertyFactory.circleRadius(8f),
             PropertyFactory.circleColor(
                 Expression.switchCase(
-                    Expression.toBool(Expression.get("emergency")), Expression.color(Color.parseColor("#FF1744")),
-                    Expression.toBool(Expression.get("fresh")), Expression.color(Color.parseColor("#FF5252")),
+                    Expression.coalesce(Expression.get("emergency"), Expression.literal(false)), Expression.color(Color.parseColor("#FF1744")),
+                    Expression.coalesce(Expression.get("fresh"), Expression.literal(false)), Expression.color(Color.parseColor("#FF5252")),
                     Expression.color(Color.parseColor("#FFB300")),
                 )
             ),
             PropertyFactory.circleStrokeColor(Color.parseColor("#101418")),
             PropertyFactory.circleStrokeWidth(2f),
-            PropertyFactory.circleOpacity(Expression.toNumber(Expression.get("fade"))),
-            PropertyFactory.circleStrokeOpacity(Expression.toNumber(Expression.get("fade"))),
+            PropertyFactory.circleOpacity(Expression.coalesce(Expression.get("fade"), Expression.literal(1.0))),
+            PropertyFactory.circleStrokeOpacity(Expression.coalesce(Expression.get("fade"), Expression.literal(1.0))),
         )) {
             CircleLayer(LAYER_UNITS, SRC_UNITS).withProperties(
                 PropertyFactory.circleRadius(8f),
@@ -623,7 +623,7 @@ class PositionMapActivity : Activity() {
             PropertyFactory.textAnchor(Property.TEXT_ANCHOR_TOP),
             PropertyFactory.textOffset(arrayOf(0f, 1.0f)),
             PropertyFactory.textAllowOverlap(false),
-            PropertyFactory.textOpacity(Expression.toNumber(Expression.get("fade"))),
+            PropertyFactory.textOpacity(Expression.coalesce(Expression.get("fade"), Expression.literal(1.0))),
         )) {
             SymbolLayer(LAYER_LABELS, SRC_UNITS).withProperties(
                 PropertyFactory.textField(Expression.get("label")),
@@ -788,31 +788,52 @@ class PositionMapActivity : Activity() {
             val fix = radio.latest
             val tg = tgOf(radio.source)
             val age = now - fix.epochMillis
-            Feature.fromGeometry(Point.fromLngLat(fix.longitude, fix.latitude)).apply {
-                addStringProperty("source", radio.source.toString())
-                val tgPart = if (tg.isNotEmpty()) " · TG $tg" else ""
-                addStringProperty("label", "${displayName(radio.source)}$tgPart · ${ageText(age)}")
-                addBooleanProperty("fresh", age < FRESH_MS)
-                addBooleanProperty("selected", radio.source == selectedSource)
-                addBooleanProperty("emergency", t == null && isEmergency(radio.source, now))
-                addNumberProperty("fade", fadeFor(age))
-            }
+            val tgPart = if (tg.isNotEmpty()) " · TG $tg" else ""
+            pointJson(fix.longitude, fix.latitude, JSONObject()
+                .put("source", radio.source.toString())
+                .put("label", "${displayName(radio.source)}$tgPart · ${ageText(age)}")
+                .put("fresh", age < FRESH_MS)
+                .put("selected", radio.source == selectedSource)
+                .put("emergency", t == null && isEmergency(radio.source, now))
+                .put("fade", fadeFor(age)))
         }
         val tracks = shown.filter { it.track.size > 1 && it.source != historySource }.map { radio ->
-            Feature.fromGeometry(LineString.fromLngLats(radio.track.map { Point.fromLngLat(it.longitude, it.latitude) }))
+            lineJson(radio.track.map { it.longitude to it.latitude })
         }
         val unitsSource = s.getSourceAs<GeoJsonSource>(SRC_UNITS)
         if (unitsSource == null) {
             lastRenderSkipped = "dots source missing"
         } else {
             try {
-                unitsSource.setGeoJson(FeatureCollection.fromFeatures(points))
+                unitsSource.setGeoJson(collectionJson(points))
                 lastDotsSent = points.size
             } catch (e: Throwable) {
                 lastRenderSkipped = "setGeoJson: ${e.javaClass.simpleName}: ${e.message}"
             }
         }
-        runCatching { s.getSourceAs<GeoJsonSource>(SRC_TRACKS)?.setGeoJson(FeatureCollection.fromFeatures(tracks)) }
+        runCatching { s.getSourceAs<GeoJsonSource>(SRC_TRACKS)?.setGeoJson(collectionJson(tracks)) }
+    }
+
+    // GeoJSON goes to the map as text the engine parses itself. Built through the Java Feature
+    // objects, properties did not reach the renderer on a device: every dot drew at the "fade"
+    // opacity of a missing value (0) and every label blank, while the data and layers checked out.
+    private fun pointJson(lon: Double, lat: Double, props: JSONObject): JSONObject = JSONObject()
+        .put("type", "Feature")
+        .put("geometry", JSONObject().put("type", "Point").put("coordinates", JSONArray().put(lon).put(lat)))
+        .put("properties", props)
+
+    private fun lineJson(coords: List<Pair<Double, Double>>): JSONObject {
+        val arr = JSONArray()
+        coords.forEach { (lon, lat) -> arr.put(JSONArray().put(lon).put(lat)) }
+        return JSONObject().put("type", "Feature")
+            .put("geometry", JSONObject().put("type", "LineString").put("coordinates", arr))
+            .put("properties", JSONObject())
+    }
+
+    private fun collectionJson(features: List<JSONObject>): String {
+        val arr = JSONArray()
+        features.forEach { arr.put(it) }
+        return JSONObject().put("type", "FeatureCollection").put("features", arr).toString()
     }
 
     private fun showDiagnostics() {
@@ -946,21 +967,16 @@ class PositionMapActivity : Activity() {
         val s = style
         val timeFmt = SimpleDateFormat("HH:mm", Locale.getDefault())
         if (s != null) {
-            val line = if (fixes.size > 1) {
-                listOf(Feature.fromGeometry(LineString.fromLngLats(fixes.map { Point.fromLngLat(it.longitude, it.latitude) })))
-            } else {
-                emptyList()
-            }
+            val line = if (fixes.size > 1) listOf(lineJson(fixes.map { it.longitude to it.latitude })) else emptyList()
             val pts = fixes.map { f ->
-                Feature.fromGeometry(Point.fromLngLat(f.longitude, f.latitude)).apply {
-                    addStringProperty("time", timeFmt.format(Date(f.epochMillis)))
-                    addNumberProperty("epoch", f.epochMillis)
-                    addNumberProperty("speed", f.speedKph)
-                    addNumberProperty("heading", f.heading)
-                }
+                pointJson(f.longitude, f.latitude, JSONObject()
+                    .put("time", timeFmt.format(Date(f.epochMillis)))
+                    .put("epoch", f.epochMillis)
+                    .put("speed", f.speedKph)
+                    .put("heading", f.heading))
             }
-            s.getSourceAs<GeoJsonSource>(SRC_HISTORY_LINE)?.setGeoJson(FeatureCollection.fromFeatures(line))
-            s.getSourceAs<GeoJsonSource>(SRC_HISTORY_PTS)?.setGeoJson(FeatureCollection.fromFeatures(pts))
+            s.getSourceAs<GeoJsonSource>(SRC_HISTORY_LINE)?.setGeoJson(collectionJson(line))
+            s.getSourceAs<GeoJsonSource>(SRC_HISTORY_PTS)?.setGeoJson(collectionJson(pts))
         }
         val range = HISTORY_RANGES.firstOrNull { it.second == historyRangeMs }?.first ?: ""
         historyBar.text = getString(R.string.map_history_bar, id.toString(), range, fixes.size)
@@ -1802,8 +1818,8 @@ class PositionMapActivity : Activity() {
     private fun updateMyLocationSource() {
         val s = style ?: return
         val me = myLocation
-        val features = if (me == null) emptyList() else listOf(Feature.fromGeometry(Point.fromLngLat(me.longitude, me.latitude)))
-        s.getSourceAs<GeoJsonSource>(SRC_ME)?.setGeoJson(FeatureCollection.fromFeatures(features))
+        val features = if (me == null) emptyList() else listOf(pointJson(me.longitude, me.latitude, JSONObject()))
+        s.getSourceAs<GeoJsonSource>(SRC_ME)?.setGeoJson(collectionJson(features))
     }
 
     // ---- Helpers -------------------------------------------------------------------------
