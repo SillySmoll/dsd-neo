@@ -110,7 +110,6 @@ class PositionMapActivity : Activity() {
     private var talkers: Map<Long, TalkerLog.Entry> = emptyMap()
     /** Names the user gave radios ([RadioNames]). */
     private var names: Map<Long, String> = emptyMap()
-    private var fadeOld = true
 
     /** Timeline replay: the moment shown, or null when the map is live. */
     private var replayTime: Long? = null
@@ -266,6 +265,9 @@ class PositionMapActivity : Activity() {
         bottomBar = buildBottomBar()
         replayPanel = buildReplayPanel()
         val bottomColumn = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        bottomColumn.addView(buildLegend(), LinearLayout.LayoutParams(WRAP, WRAP).apply {
+            leftMargin = dp(10); bottomMargin = dp(6)
+        })
         bottomColumn.addView(replayPanel, LinearLayout.LayoutParams(MATCH, WRAP).apply {
             leftMargin = dp(10); rightMargin = dp(10); bottomMargin = dp(6)
         })
@@ -353,6 +355,31 @@ class PositionMapActivity : Activity() {
         bar.addView(pill("Replay") { showRecent() }, lp())
         applyFollowLook()
         return bar
+    }
+
+    /** The colour key: what each dot colour means. */
+    private fun buildLegend(): LinearLayout {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = panel(PANEL, stroke = STROKE)
+            setPadding(dp(10), dp(5), dp(10), dp(5))
+        }
+        val labels = listOf(getString(R.string.map_key_new), getString(R.string.map_key_stale), getString(R.string.map_key_old))
+        labels.forEachIndexed { i, label ->
+            row.addView(TextView(this).apply {
+                text = "●"
+                setTextColor(DOT_COLORS[i])
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            }, LinearLayout.LayoutParams(WRAP, WRAP).apply { if (i > 0) leftMargin = dp(10) })
+            row.addView(TextView(this).apply {
+                text = label
+                setTextColor(TEXT)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                setPadding(dp(4), 0, 0, 0)
+            })
+        }
+        return row
     }
 
     private fun buildReplayPanel(): LinearLayout {
@@ -537,7 +564,8 @@ class PositionMapActivity : Activity() {
 
     private fun installLayers(s: Style) {
         val empty = FeatureCollection.fromFeatures(emptyList())
-        for (id in listOf(SRC_TRACKS, SRC_UNITS, SRC_ME, SRC_HISTORY_LINE, SRC_HISTORY_PTS)) {
+        for (id in listOf(SRC_TRACKS, SRC_UNITS, SRC_ME, SRC_HISTORY_LINE, SRC_HISTORY_PTS) + DOT_SOURCES +
+            listOf(SRC_SELECTED, SRC_EMERGENCY)) {
             try {
                 if (s.getSource(id) == null) s.addSource(GeoJsonSource(id, empty))
             } catch (e: Throwable) {
@@ -580,38 +608,28 @@ class PositionMapActivity : Activity() {
             PropertyFactory.circleStrokeColor(Color.WHITE),
             PropertyFactory.circleStrokeWidth(2.5f),
         ))
-        addLayerSafely(s, CircleLayer(LAYER_EMERGENCY, SRC_UNITS).withProperties(
+        // Rings and dots each draw from their own source with fixed colors, so how a dot looks never
+        // depends on per-feature properties reaching the renderer (they did not on one device).
+        addLayerSafely(s, CircleLayer(LAYER_EMERGENCY, SRC_EMERGENCY).withProperties(
             PropertyFactory.circleRadius(20f),
             PropertyFactory.circleColor(Color.parseColor("#55FF1744")),
             PropertyFactory.circleStrokeColor(Color.parseColor("#FF1744")),
             PropertyFactory.circleStrokeWidth(3f),
-        ).withFilter(Expression.coalesce(Expression.get("emergency"), Expression.literal(false))))
-        addLayerSafely(s, CircleLayer(LAYER_SELECTED, SRC_UNITS).withProperties(
+        ))
+        addLayerSafely(s, CircleLayer(LAYER_SELECTED, SRC_SELECTED).withProperties(
             PropertyFactory.circleRadius(16f),
             PropertyFactory.circleColor(Color.parseColor("#3300E5FF")),
             PropertyFactory.circleStrokeColor(Color.parseColor("#00E5FF")),
             PropertyFactory.circleStrokeWidth(3f),
-        ).withFilter(Expression.coalesce(Expression.get("selected"), Expression.literal(false))))
-        addLayerSafely(s, CircleLayer(LAYER_UNITS, SRC_UNITS).withProperties(
-            PropertyFactory.circleRadius(8f),
-            PropertyFactory.circleColor(
-                Expression.switchCase(
-                    Expression.coalesce(Expression.get("emergency"), Expression.literal(false)), Expression.color(Color.parseColor("#FF1744")),
-                    Expression.coalesce(Expression.get("fresh"), Expression.literal(false)), Expression.color(Color.parseColor("#FF5252")),
-                    Expression.color(Color.parseColor("#FFB300")),
-                )
-            ),
-            PropertyFactory.circleStrokeColor(Color.parseColor("#101418")),
-            PropertyFactory.circleStrokeWidth(2f),
-            PropertyFactory.circleOpacity(Expression.coalesce(Expression.get("fade"), Expression.literal(1.0))),
-            PropertyFactory.circleStrokeOpacity(Expression.coalesce(Expression.get("fade"), Expression.literal(1.0))),
-        )) {
-            CircleLayer(LAYER_UNITS, SRC_UNITS).withProperties(
+        ))
+        // Oldest first, so newer dots sit on top where radios overlap.
+        for (i in DOT_SOURCES.indices.reversed()) {
+            addLayerSafely(s, CircleLayer(DOT_LAYERS[i], DOT_SOURCES[i]).withProperties(
                 PropertyFactory.circleRadius(8f),
-                PropertyFactory.circleColor(Color.parseColor("#FF5252")),
+                PropertyFactory.circleColor(DOT_COLORS[i]),
                 PropertyFactory.circleStrokeColor(Color.parseColor("#101418")),
                 PropertyFactory.circleStrokeWidth(2f),
-            )
+            ))
         }
         addLayerSafely(s, SymbolLayer(LAYER_LABELS, SRC_UNITS).withProperties(
             PropertyFactory.textField(Expression.get("label")),
@@ -623,20 +641,8 @@ class PositionMapActivity : Activity() {
             PropertyFactory.textAnchor(Property.TEXT_ANCHOR_TOP),
             PropertyFactory.textOffset(arrayOf(0f, 1.0f)),
             PropertyFactory.textAllowOverlap(false),
-            PropertyFactory.textOpacity(Expression.coalesce(Expression.get("fade"), Expression.literal(1.0))),
-        )) {
-            SymbolLayer(LAYER_LABELS, SRC_UNITS).withProperties(
-                PropertyFactory.textField(Expression.get("label")),
-                PropertyFactory.textFont(arrayOf("Open Sans Regular")),
-                PropertyFactory.textSize(12f),
-                PropertyFactory.textColor(Color.WHITE),
-                PropertyFactory.textHaloColor(Color.parseColor("#CC000000")),
-                PropertyFactory.textHaloWidth(1.5f),
-                PropertyFactory.textAnchor(Property.TEXT_ANCHOR_TOP),
-                PropertyFactory.textOffset(arrayOf(0f, 1.0f)),
-            )
-        }
-        if (s.getLayer(LAYER_UNITS) == null) mapProblems += "dots layer missing after setup"
+        ))
+        if (DOT_LAYERS.any { s.getLayer(it) == null }) mapProblems += "a dots layer is missing after setup"
     }
 
     // ---- Live overlays -------------------------------------------------------------------
@@ -784,39 +790,49 @@ class PositionMapActivity : Activity() {
             val selected = selectedRadio()
             if (selected != null && loaded.none { it.source == selected.source }) loaded + selected else loaded
         }
+        val buckets = List(DOT_SOURCES.size) { ArrayList<JSONObject>() }
+        val selectedDots = ArrayList<JSONObject>()
+        val emergencyDots = ArrayList<JSONObject>()
         val points = shown.map { radio ->
             val fix = radio.latest
             val tg = tgOf(radio.source)
             val age = now - fix.epochMillis
             val tgPart = if (tg.isNotEmpty()) " · TG $tg" else ""
-            pointJson(fix.longitude, fix.latitude, JSONObject()
+            val feature = pointJson(fix.longitude, fix.latitude, JSONObject()
                 .put("source", radio.source.toString())
-                .put("label", "${displayName(radio.source)}$tgPart · ${ageText(age)}")
-                .put("fresh", age < FRESH_MS)
-                .put("selected", radio.source == selectedSource)
-                .put("emergency", t == null && isEmergency(radio.source, now))
-                .put("fade", fadeFor(age)))
+                .put("label", "${displayName(radio.source)}$tgPart · ${ageText(age)}"))
+            buckets[ageBucket(age)].add(feature)
+            if (radio.source == selectedSource) selectedDots.add(feature)
+            if (t == null && isEmergency(radio.source, now)) emergencyDots.add(feature)
+            feature
         }
         val tracks = shown.filter { it.track.size > 1 && it.source != historySource }.map { radio ->
             lineJson(radio.track.map { it.longitude to it.latitude })
         }
-        val unitsSource = s.getSourceAs<GeoJsonSource>(SRC_UNITS)
-        if (unitsSource == null) {
-            lastRenderSkipped = "dots source missing"
-        } else {
-            try {
-                unitsSource.setGeoJson(collectionJson(points))
-                lastDotsSent = points.size
-            } catch (e: Throwable) {
-                lastRenderSkipped = "setGeoJson: ${e.javaClass.simpleName}: ${e.message}"
+        try {
+            for (i in DOT_SOURCES.indices) {
+                val src = s.getSourceAs<GeoJsonSource>(DOT_SOURCES[i])
+                if (src == null) lastRenderSkipped = "dots source ${DOT_SOURCES[i]} missing" else src.setGeoJson(collectionJson(buckets[i]))
             }
+            s.getSourceAs<GeoJsonSource>(SRC_UNITS)?.setGeoJson(collectionJson(points))
+            s.getSourceAs<GeoJsonSource>(SRC_SELECTED)?.setGeoJson(collectionJson(selectedDots))
+            s.getSourceAs<GeoJsonSource>(SRC_EMERGENCY)?.setGeoJson(collectionJson(emergencyDots))
+            lastDotsSent = points.size
+        } catch (e: Throwable) {
+            lastRenderSkipped = "setGeoJson: ${e.javaClass.simpleName}: ${e.message}"
         }
         runCatching { s.getSourceAs<GeoJsonSource>(SRC_TRACKS)?.setGeoJson(collectionJson(tracks)) }
     }
 
-    // GeoJSON goes to the map as text the engine parses itself. Built through the Java Feature
-    // objects, properties did not reach the renderer on a device: every dot drew at the "fade"
-    // opacity of a missing value (0) and every label blank, while the data and layers checked out.
+    /** 0 = green (under 3 min), 1 = yellow (3–5 min), 2 = red (older than 5 min). */
+    private fun ageBucket(ageMs: Long): Int = when {
+        ageMs < GREEN_MS -> 0
+        ageMs <= YELLOW_MS -> 1
+        else -> 2
+    }
+
+    // GeoJSON goes to the map as text the engine parses itself; built through the Java Feature
+    // objects, properties did not reach the renderer on a device.
     private fun pointJson(lon: Double, lat: Double, props: JSONObject): JSONObject = JSONObject()
         .put("type", "Feature")
         .put("geometry", JSONObject().put("type", "Point").put("coordinates", JSONArray().put(lon).put(lat)))
@@ -839,7 +855,7 @@ class PositionMapActivity : Activity() {
     private fun showDiagnostics() {
         val s = style
         val layerIds = listOf(LAYER_TRACKS, LAYER_HISTORY_LINE, LAYER_HISTORY_PTS, LAYER_HISTORY_LABELS, LAYER_ME,
-            LAYER_EMERGENCY, LAYER_SELECTED, LAYER_UNITS, LAYER_LABELS)
+            LAYER_EMERGENCY, LAYER_SELECTED) + DOT_LAYERS + LAYER_LABELS
         val body = buildString {
             append("Style loaded: ").append(if (s != null) "yes ($styleLoads)" else "no").append('\n')
             append("Radios in window: ").append(radios.size).append(" · all: ").append(allRadios.size).append('\n')
@@ -866,15 +882,6 @@ class PositionMapActivity : Activity() {
                 toast(getString(R.string.map_copied))
             }
             .setNegativeButton(R.string.map_close, null).show()
-    }
-
-    /** Full opacity for five minutes, then dimming toward 30 % at the edge of the time window. */
-    private fun fadeFor(ageMs: Long): Double {
-        if (!fadeOld) return 1.0
-        val span = WINDOWS[windowIndex].second.takeIf { it > 0L } ?: FADE_SPAN_ALL_MS
-        if (ageMs <= FADE_START_MS) return 1.0
-        val f = (ageMs - FADE_START_MS).toDouble() / (span - FADE_START_MS).coerceAtLeast(60_000L).toDouble()
-        return (1.0 - 0.7 * f.coerceIn(0.0, 1.0))
     }
 
     private fun displayName(id: Long): String = names[id] ?: id.toString()
@@ -998,8 +1005,12 @@ class PositionMapActivity : Activity() {
 
     private fun onMapClick(readyMap: MapLibreMap, point: LatLng): Boolean {
         val screen: PointF = readyMap.projection.toScreenLocation(point)
-        readyMap.queryRenderedFeatures(screen, LAYER_UNITS, LAYER_LABELS).firstOrNull()?.getStringProperty("source")?.let { src ->
-            allRadios.firstOrNull { it.source.toString() == src }?.let { select(it, fly = false); showRadio(it) }
+        val dotHits = readyMap.queryRenderedFeatures(screen, *(DOT_LAYERS + LAYER_LABELS).toTypedArray())
+        if (dotHits.isNotEmpty()) {
+            // By the feature's own ID when it carries one, else the radio drawn nearest the tap.
+            val src = runCatching { dotHits.first().getStringProperty("source") }.getOrNull()
+            val radio = allRadios.firstOrNull { it.source.toString() == src } ?: nearestRadio(readyMap, screen)
+            radio?.let { select(it, fly = false); showRadio(it) }
             return true
         }
         readyMap.queryRenderedFeatures(screen, LAYER_HISTORY_PTS).firstOrNull()?.let { f ->
@@ -1015,6 +1026,14 @@ class PositionMapActivity : Activity() {
             }
         }
         return false
+    }
+
+    private fun nearestRadio(readyMap: MapLibreMap, screen: PointF): PositionLog.Radio? {
+        val candidates = if (replayTime != null) radiosAt(replayTime!!) else radios
+        return candidates.minByOrNull { r ->
+            val p = readyMap.projection.toScreenLocation(LatLng(r.latest.latitude, r.latest.longitude))
+            (p.x - screen.x) * (p.x - screen.x) + (p.y - screen.y) * (p.y - screen.y)
+        }
     }
 
     private fun showHistoryPoint(f: Feature) {
@@ -1171,7 +1190,6 @@ class PositionMapActivity : Activity() {
             getString(R.string.map_menu_tg, tgFilter?.let { "TG $it" } ?: getString(R.string.map_all)),
             getString(R.string.map_menu_names, names.size),
             getString(R.string.map_menu_timeline),
-            getString(if (fadeOld) R.string.map_menu_fade_on else R.string.map_menu_fade_off),
             getString(R.string.map_menu_export),
             getString(R.string.map_menu_cache, cacheMb),
             getString(R.string.map_menu_diagnostics),
@@ -1184,10 +1202,9 @@ class PositionMapActivity : Activity() {
                 3 -> chooseTalkgroup()
                 4 -> showNames()
                 5 -> startTimeline()
-                6 -> { fadeOld = !fadeOld; savePreferences(); renderRadios() }
-                7 -> chooseExport()
-                8 -> chooseCache()
-                9 -> showDiagnostics()
+                6 -> chooseExport()
+                7 -> chooseCache()
+                8 -> showDiagnostics()
             }
         }.setNegativeButton(android.R.string.cancel, null).show()
     }
@@ -1858,7 +1875,6 @@ class PositionMapActivity : Activity() {
         p.getStringSet(KEY_OVERLAYS, emptySet())?.filter { id -> OVERLAYS.any { it.id == id } }?.let { overlays.addAll(it) }
         radar = p.getString(KEY_RADAR, "off")?.takeIf { it == "off" || it in RADARS } ?: "off"
         cacheMb = p.getInt(KEY_CACHE, 512)
-        fadeOld = p.getBoolean(KEY_FADE, true)
     }
 
     private fun savePreferences() {
@@ -1866,7 +1882,7 @@ class PositionMapActivity : Activity() {
             .putString(KEY_BASE, baseMap).putInt(KEY_WINDOW, windowIndex)
             .putBoolean(KEY_FOLLOW, followTalker).putString(KEY_TG, tgFilter ?: "")
             .putStringSet(KEY_OVERLAYS, LinkedHashSet(overlays)).putString(KEY_RADAR, radar)
-            .putInt(KEY_CACHE, cacheMb).putBoolean(KEY_FADE, fadeOld).apply()
+            .putInt(KEY_CACHE, cacheMb).apply()
     }
 
     // ---- Lifecycle -----------------------------------------------------------------------
@@ -1933,7 +1949,6 @@ class PositionMapActivity : Activity() {
         private const val POLL_MS = 3000L
         private const val TALKER_POLL_MS = 1000L
         private const val OVERLAY_REFRESH_MS = 5 * 60_000L
-        private const val FRESH_MS = 2 * 60 * 1000L
         private const val EMERGENCY_SHOW_MS = 30 * 60_000L
         private const val EMERGENCY_FRESH_MS = 2 * 60_000L
         private const val EMERGENCY_BANNER_MS = 60_000L
@@ -1946,10 +1961,15 @@ class PositionMapActivity : Activity() {
         private const val KEY_OVERLAYS = "overlays"
         private const val KEY_RADAR = "radar"
         private const val KEY_CACHE = "cache_mb"
-        private const val KEY_FADE = "fade_old"
         private const val REQ_IMPORT_NAMES = 4102
-        private const val FADE_START_MS = 5 * 60_000L
-        private const val FADE_SPAN_ALL_MS = 2 * 60 * 60_000L
+        /** Dot colours by age of the last report: green, then yellow, then red. */
+        private const val GREEN_MS = 3 * 60_000L
+        private const val YELLOW_MS = 5 * 60_000L
+        private const val SRC_SELECTED = "sig-selected"
+        private const val SRC_EMERGENCY = "sig-emergency"
+        private val DOT_SOURCES = listOf("sig-dots-new", "sig-dots-stale", "sig-dots-old")
+        private val DOT_LAYERS = listOf("sig-dots-new-layer", "sig-dots-stale-layer", "sig-dots-old-layer")
+        private val DOT_COLORS = listOf(Color.parseColor("#00C853"), Color.parseColor("#FFD600"), Color.parseColor("#FF1744"))
         private const val REPLAY_TICK_MS = 200L
         private const val REPLAY_STEPS = 1000
         /** Label and how many seconds of history one second of playback covers. */
@@ -1962,7 +1982,6 @@ class PositionMapActivity : Activity() {
         private const val SRC_ME = "sig-me"
         private const val SRC_HISTORY_LINE = "sig-history-line"
         private const val SRC_HISTORY_PTS = "sig-history-pts"
-        private const val LAYER_UNITS = "sig-units-dots"
         private const val LAYER_LABELS = "sig-units-labels"
         private const val LAYER_TRACKS = "sig-tracks-lines"
         private const val LAYER_ME = "sig-me-dot"

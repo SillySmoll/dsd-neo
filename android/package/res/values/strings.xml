@@ -119,6 +119,9 @@
     <string name="map_menu_diagnostics">Map diagnostics</string>
     <string name="map_diagnostics_title">Map diagnostics</string>
     <string name="map_problem_toast">Part of the map could not load. Layers → Map diagnostics shows what.</string>
+    <string name="map_key_new">Under 3 min</string>
+    <string name="map_key_stale">3–5 min</string>
+    <string name="map_key_old">Over 5 min</string>
     <string name="emergency_channel_name">Emergency alerts</string>
     <string name="emergency_channel_description">A radio declared an emergency</string>
     <string name="emergency_title">⚠ Radio emergency</string>
