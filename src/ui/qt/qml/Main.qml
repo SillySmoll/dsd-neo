@@ -11,7 +11,7 @@ Window {
     visible: true
     width: 420
     height: 900
-    title: qsTr("DSD-neo")
+    title: qsTr("WTDW Tracker")
     color: Theme.bg
 
     // The screen has two modes with one principle carried over from the old UI:

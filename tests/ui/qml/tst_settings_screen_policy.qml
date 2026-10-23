@@ -113,7 +113,7 @@ Item {
             compare(delay.visible, true);
             compare(delay.title, "Turn off after");
             compare(delay.subtitle, "30 seconds");
-            compare(mode.subtitle, "Off between calls · While listening, dims after 30 seconds without audio, then turns off. Audio turns it back on if DSD-neo was on screen when it went off.");
+            compare(mode.subtitle, "Off between calls · While listening, dims after 30 seconds without audio, then turns off. Audio turns it back on if WTDW Tracker was on screen when it went off.");
             compare(mode.showDivider, true);
 
             delay.activate();
@@ -141,7 +141,7 @@ Item {
             mode.activate();
             choose(1);
             compare(prefs.screenMode, 1);
-            compare(mode.subtitle, "Always on · Stays on while DSD-neo is open");
+            compare(mode.subtitle, "Always on · Stays on while WTDW Tracker is open");
             compare(delay.visible, false);
             compare(prefs.screenDelaySec, 120, "the delay is kept for the next between-calls mode");
         }

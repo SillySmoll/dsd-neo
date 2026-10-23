@@ -59,7 +59,7 @@ Item {
         onPaint: {
             var ctx = getContext("2d");
             ctx.reset();
-            ctx.fillStyle = control.featured ? (Theme.dark ? "#0E1116" : "#FFFFFF") : String(Theme.textSubdued);
+            ctx.fillStyle = control.featured ? (Theme.dark ? "#07111F" : "#FFFFFF") : String(Theme.textSubdued);
             // Nudged right of center: an exactly centered triangle reads left-heavy.
             ctx.beginPath();
             ctx.moveTo(4, 1.5);

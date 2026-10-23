@@ -643,7 +643,7 @@ class PositionMapActivity : Activity() {
             addLayerSafely(s, CircleLayer(DOT_LAYERS[i], DOT_SOURCES[i]).withProperties(
                 PropertyFactory.circleRadius(8f),
                 PropertyFactory.circleColor(DOT_COLORS[i]),
-                PropertyFactory.circleStrokeColor(Color.parseColor("#101418")),
+                PropertyFactory.circleStrokeColor(Color.parseColor("#07111F")),
                 PropertyFactory.circleStrokeWidth(2f),
             ))
         }
@@ -696,7 +696,7 @@ class PositionMapActivity : Activity() {
         val c = URL(url).openConnection() as HttpURLConnection
         c.connectTimeout = 15_000
         c.readTimeout = 20_000
-        c.setRequestProperty("User-Agent", "SIG-SENSE (DSD-neo)")
+        c.setRequestProperty("User-Agent", "WTDW Tracker (DSD-neo)")
         try {
             if (c.responseCode !in 200..299) null else c.inputStream.bufferedReader().use { it.readText() }
         } finally {
@@ -852,7 +852,7 @@ class PositionMapActivity : Activity() {
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
                     setShadowLayer(4f, 0f, 1f, Color.BLACK)
                     background = GradientDrawable().apply {
-                        setColor(Color.parseColor("#B3101418"))
+                        setColor(Color.parseColor("#B307111F"))
                         cornerRadius = dp(6).toFloat()
                     }
                     setPadding(dp(5), dp(1), dp(5), dp(2))
@@ -1475,7 +1475,7 @@ class PositionMapActivity : Activity() {
                     dir.mkdirs()
                     dir.listFiles()?.filter { System.currentTimeMillis() - it.lastModified() > 24 * 3600_000L }?.forEach { it.delete() }
                     val stamp = SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date())
-                    val file = File(dir, "sigsense-positions-$stamp.${format.extension}")
+                    val file = File(dir, "wtdw-positions-$stamp.${format.extension}")
                     file.writeText(MapExport.render(format, tracks))
                     file
                 }
@@ -1586,7 +1586,7 @@ class PositionMapActivity : Activity() {
                 }
                 runCatching { startActivityForResult(pick, REQ_IMPORT_NAMES) }.onFailure { toast(getString(R.string.map_names_import_failed)) }
             } else {
-                val file = File(exportsDir(), "sigsense-radio-names.csv")
+                val file = File(exportsDir(), "wtdw-radio-names.csv")
                 runCatching { file.writeText(RadioNames.exportCsv(this)) }
                     .onSuccess { shareFile(file, "text/csv") }
                     .onFailure { toast(getString(R.string.map_export_failed)) }
@@ -2130,19 +2130,19 @@ class PositionMapActivity : Activity() {
         private const val LAYER_HISTORY_PTS = "sig-history-pts-layer"
         private const val LAYER_HISTORY_LABELS = "sig-history-labels"
 
-        private val BG = Color.parseColor("#0B0F14")
-        private val BAR = Color.parseColor("#E60B0F14")
-        private val PANEL = Color.parseColor("#E61A2129")
+        private val BG = Color.parseColor("#07111F")
+        private val BAR = Color.parseColor("#E607111F")
+        private val PANEL = Color.parseColor("#E60C1A2E")
         private val STROKE = Color.parseColor("#33FFFFFF")
-        private val TEXT = Color.parseColor("#F2F5F8")
-        private val MUTED = Color.parseColor("#9AA5B1")
+        private val TEXT = Color.parseColor("#E8EFF9")
+        private val MUTED = Color.parseColor("#9FB3D1")
         private val TALK_BG = Color.parseColor("#E6B71C1C")
         private val ALERT_BG = Color.parseColor("#F2D50000")
         private val HISTORY_BG = Color.parseColor("#E64527A0")
-        private val FOLLOW_ON = Color.parseColor("#E6006064")
-        private val FOLLOW_STROKE = Color.parseColor("#00E5FF")
+        private val FOLLOW_ON = Color.parseColor("#E61458C4")
+        private val FOLLOW_STROKE = Color.parseColor("#F5C242")
         private val PLAYER_BG = Color.parseColor("#E6006E3D")
-        private val REPLAY_BG = Color.parseColor("#F01A2129")
+        private val REPLAY_BG = Color.parseColor("#F00C1A2E")
 
         /** Label and how far back it reaches (0 = everything kept in the file). */
         private val WINDOWS = listOf(

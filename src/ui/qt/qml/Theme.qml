@@ -71,29 +71,30 @@ QtObject {
     }
 
     // Surfaces
-    readonly property color bg: dark ? "#0E1116" : "#F2F4F8"
-    readonly property color panel: dark ? "#12161E" : "#FFFFFF"
-    readonly property color panelBorder: dark ? "#232B3A" : "#E0E4EE"
-    readonly property color divider: dark ? "#1A212E" : "#EEF1F6"
-    readonly property color controlBorder: dark ? "#233042" : "#D6DBE6"
+    readonly property color bg: dark ? "#07111F" : "#EEF3FA"
+    readonly property color panel: dark ? "#0C1A2E" : "#FFFFFF"
+    readonly property color panelBorder: dark ? "#1C3352" : "#D3DFEF"
+    readonly property color divider: dark ? "#12243D" : "#E6EDF7"
+    readonly property color controlBorder: dark ? "#21406A" : "#C9D7EA"
 
     // Text
-    readonly property color textPrimary: dark ? "#E6EAF2" : "#10141C"
-    readonly property color textSecondary: dark ? "#9AA5BD" : "#5B6478"
-    readonly property color textSubdued: dark ? "#9AA5BD" : "#5B6478"
-    readonly property color buttonSecondaryText: dark ? "#C6CFE0" : "#38415A"
+    readonly property color textPrimary: dark ? "#E8EFF9" : "#0A1628"
+    readonly property color textSecondary: dark ? "#9FB3D1" : "#4A5E7C"
+    readonly property color textSubdued: dark ? "#9FB3D1" : "#4A5E7C"
+    readonly property color buttonSecondaryText: dark ? "#C9D8EE" : "#2B4064"
 
-    // Accents — icon hues, darkened in light mode so they hold contrast on white.
-    readonly property color cyan: dark ? "#22DCF5" : "#006B91"
-    readonly property color magenta: dark ? "#EC1FDC" : "#B306A6"
+    // Accents (WTDW police blue): "cyan" is the blue, "magenta" the badge gold; darkened in light mode
+    // so they hold contrast on white. The names stay so every screen and test keeps resolving them.
+    readonly property color cyan: dark ? "#4DA3FF" : "#1458C4"
+    readonly property color magenta: dark ? "#F5C242" : "#8A5A00"
 
     readonly property color alert: dark ? "#FFAC88" : "#9C3600"
     readonly property color alertBorder: Qt.alpha(alert, dark ? 0.55 : 0.45)
 
     // Derived fills
     readonly property color toggleOnTrack: Qt.alpha(cyan, dark ? 0.25 : 0.22)
-    readonly property color toggleOffTrack: dark ? "#233042" : "#D6DBE6"
-    readonly property color toggleKnobOff: dark ? "#6B7690" : "#FFFFFF"
+    readonly property color toggleOffTrack: dark ? "#21406A" : "#C9D7EA"
+    readonly property color toggleKnobOff: dark ? "#6F86A8" : "#FFFFFF"
     readonly property color chipSelectedFill: Qt.alpha(cyan, dark ? 0.10 : 0.08)
     readonly property color encBorder: Qt.alpha(magenta, dark ? 0.40 : 0.35)
 

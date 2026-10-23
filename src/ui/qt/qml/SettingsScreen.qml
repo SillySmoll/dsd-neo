@@ -14,7 +14,7 @@ Item {
     property bool lockoutPending: false
     property bool requestedLockoutPersistence: true
     property string lockoutError: ""
-    readonly property string versionText: "DSD-neo " + appVersionText.replace(/^v/, "")
+    readonly property string versionText: "WTDW Tracker " + appVersionText.replace(/^v/, "")
     readonly property bool liveLockoutPersistence: metrics.persistTgLockouts
     readonly property bool lockoutSessionRunning: decoderHost.sessionState === 2
     readonly property bool lockoutEditable: !lockoutPending && (decoderHost.sessionState === 0 || decoderHost.sessionState === 4 || (lockoutSessionRunning && metrics.optionsKnown))
@@ -27,9 +27,9 @@ Item {
     readonly property string screenModeSubtitle: {
         var delay = screenDelayText(prefs.screenDelaySec);
         var mode = prefs.screenMode;
-        var detail = mode === 1 ? qsTr("Stays on while DSD-neo is open")
+        var detail = mode === 1 ? qsTr("Stays on while WTDW Tracker is open")
             : mode === 2 ? qsTr("While listening, dims after %1 without audio. Audio or a tap brightens it.").arg(delay)
-            : mode === 3 ? qsTr("While listening, dims after %1 without audio, then turns off. Audio turns it back on if DSD-neo was on screen when it went off.").arg(delay)
+            : mode === 3 ? qsTr("While listening, dims after %1 without audio, then turns off. Audio turns it back on if WTDW Tracker was on screen when it went off.").arg(delay)
             : qsTr("Follows your phone's screen timeout");
         return qsTr("%1 · %2").arg(screenModeNames[mode] || screenModeNames[0]).arg(detail);
     }
@@ -702,7 +702,7 @@ Item {
                         Text {
                             objectName: "settingsBackupPendingNotice"
                             width: parent.width
-                            text: backup.restoreCancellable ? qsTr("Restore is ready. Close DSD-neo and open it again to finish.") : Util.restorePartWayText()
+                            text: backup.restoreCancellable ? qsTr("Restore is ready. Close WTDW Tracker and open it again to finish.") : Util.restorePartWayText()
                             wrapMode: Text.Wrap
                             font.family: Theme.sans
                             font.pixelSize: Theme.fontSize(13)

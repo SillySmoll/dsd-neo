@@ -91,7 +91,7 @@ Item {
                 objectName: "diagnosticsShare"
                 visible: decoderHost.shareSupported
                 text: qsTr("Share diagnostics")
-                onClicked: decoderHost.shareDiagnostics(diagnosticsLog.allText(), qsTr("DSD-neo diagnostics"))
+                onClicked: decoderHost.shareDiagnostics(diagnosticsLog.allText(), qsTr("WTDW Tracker diagnostics"))
             }
         }
     }

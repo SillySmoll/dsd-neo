@@ -40,7 +40,7 @@ UiPanel {
         // One whose apply has started can only be finished; the storage reason
         // already says to reopen DSD-neo.
         if (kind === "deferred")
-            return partWay ? Util.restorePartWayText() : String(outcome.message || "").trim() === qsTranslate("BackupApply", "Not enough free storage to restore. Free up storage and reopen DSD-neo") ? "" : qsTr("Reopen DSD-neo to try again.");
+            return partWay ? Util.restorePartWayText() : String(outcome.message || "").trim() === qsTranslate("BackupApply", "Not enough free storage to restore. Free up storage and reopen WTDW Tracker") ? "" : qsTr("Reopen WTDW Tracker to try again.");
         return "";
     }
     // A deferred restore is offered for discarding only while it can be.
@@ -88,7 +88,7 @@ UiPanel {
         var result = backup.discardDeferredRestore();
         if (result.discarded)
             return;
-        actionError = result.error === "RestoreInProgress" ? Util.restorePartWayText() : qsTr("Couldn't discard the restore. DSD-neo tries it again the next time it opens.");
+        actionError = result.error === "RestoreInProgress" ? Util.restorePartWayText() : qsTr("Couldn't discard the restore. WTDW Tracker tries it again the next time it opens.");
     }
     function dismiss() {
         actionError = "";

@@ -71,7 +71,7 @@ Item {
         if (result.ok)
             setNotice(qsTr("Restore cancelled."), false);
         else if (result.discarded)
-            setNotice(qsTr("Restore cancelled. Its leftover files are removed the next time DSD-neo opens."), false);
+            setNotice(qsTr("Restore cancelled. Its leftover files are removed the next time WTDW Tracker opens."), false);
         else
             setNotice(discardRefusedText(result.error), true);
     }
@@ -81,7 +81,7 @@ Item {
     function discardRefusedText(name) {
         if (name === "RestoreInProgress")
             return Util.restorePartWayText();
-        return qsTr("Couldn't cancel the restore. It still finishes when DSD-neo opens again.");
+        return qsTr("Couldn't cancel the restore. It still finishes when WTDW Tracker opens again.");
     }
 
     function restoreOpen() {
@@ -170,18 +170,18 @@ Item {
         case "WrongPassphrase":
             return qsTr("Wrong passphrase, or the file is damaged.");
         case "NotBackup":
-            return qsTr("This isn't a DSD-neo backup.");
+            return qsTr("This isn't a WTDW Tracker backup.");
         case "NewerVersion":
-            return qsTr("This backup was made by a newer DSD-neo. Update first.");
+            return qsTr("This backup was made by a newer WTDW Tracker. Update first.");
         case "TooLarge":
-            return action === "prepare" ? qsTr("Your setup is too large for one backup.") : qsTr("This file is too large to be a DSD-neo backup.");
+            return action === "prepare" ? qsTr("Your setup is too large for one backup.") : qsTr("This file is too large to be a WTDW Tracker backup.");
         case "Damaged":
             return qsTr("The backup is damaged.");
         case "NoSpace":
             return qsTr("Not enough storage to restore. Free some space and try again.");
         case "SessionActive":
             // At the confirmation nothing can start, so a session still there is stopping.
-            return action === "commit" ? qsTr("DSD-neo is still stopping a session. Try again in a moment.") : qsTr("Stop listening before restoring.");
+            return action === "commit" ? qsTr("WTDW Tracker is still stopping a session. Try again in a moment.") : qsTr("Stop listening before restoring.");
         case "PassphraseTooShort":
             return tooShortText();
         case "Busy":
@@ -193,7 +193,7 @@ Item {
             // A session appends to its lists while it listens.
             return qsTr("Your setup changed while the backup was being made. Try again.");
         case "RestorePending":
-            return qsTr("A restore is already waiting. Cancel it in Settings → Backup, or close and reopen DSD-neo to finish it.");
+            return qsTr("A restore is already waiting. Cancel it in Settings → Backup, or close and reopen WTDW Tracker to finish it.");
         }
         // Io, and any name this screen does not know yet.
         if (action === "prepare")
@@ -413,7 +413,7 @@ Item {
         var day = count(summary.createdAt) > 0 ? Qt.formatDate(new Date(count(summary.createdAt) * 1000), "MMM d, yyyy") : "";
         // Without a leading "v", as Settings shows this build's version.
         var version = String(summary.app || "").replace(/^v/, "");
-        var source = day.length && version.length ? qsTr("the backup from %1 (DSD-neo %2)").arg(day).arg(version) : day.length ? qsTr("the backup from %1").arg(day) : version.length ? qsTr("the backup (DSD-neo %1)").arg(version) : qsTr("the backup");
+        var source = day.length && version.length ? qsTr("the backup from %1 (WTDW Tracker %2)").arg(day).arg(version) : day.length ? qsTr("the backup from %1").arg(day) : version.length ? qsTr("the backup (WTDW Tracker %1)").arg(version) : qsTr("the backup");
         var question = qsTr("Replace this phone's saved systems (%1), scan lists (%2), imported files (%3), decryption profiles (%4), search ranges and settings with %5? Call history and recordings on this phone are kept.").arg(count(summary.systems)).arg(count(summary.scanLists)).arg(count(summary.libraryFiles)).arg(count(summary.profiles)).arg(source);
         var notes = [];
         var replays = count(summary.recordingsToChoose);
@@ -434,7 +434,7 @@ Item {
         // What the export could not carry, and library files this phone cannot read.
         if ((summary.notIncluded || []).length)
             parts.push(Util.notIncludedText(summary.notIncluded));
-        parts.push(qsTr("DSD-neo will close; open it again to finish."));
+        parts.push(qsTr("WTDW Tracker will close; open it again to finish."));
         return parts.join("\n\n");
     }
 
@@ -499,7 +499,7 @@ Item {
         fileMode: FileDialog.SaveFile
         // Android takes the new document's MIME type from the first filter; an
         // extension it does not know becomes application/octet-stream.
-        nameFilters: [qsTr("DSD-neo backup") + " (*.dsdbak)"]
+        nameFilters: [qsTr("WTDW Tracker backup") + " (*.dsdbak)"]
         defaultSuffix: "dsdbak"
         onAccepted: flow.savePicked(selectedFile.toString())
         onRejected: flow.savePickCancelled()
@@ -636,7 +636,7 @@ Item {
         }
         Text {
             width: parent.width
-            text: qsTr("Keep DSD-neo open until the backup is saved.")
+            text: qsTr("Keep WTDW Tracker open until the backup is saved.")
             wrapMode: Text.Wrap
             font.family: Theme.sans
             font.pixelSize: Theme.fontSize(13)
@@ -751,12 +751,12 @@ Item {
     ModalSheet {
         id: closingSheet
         objectName: "backupClosingSheet"
-        accessibleName: qsTr("Closing DSD-neo…")
+        accessibleName: qsTr("Closing WTDW Tracker…")
         dismissHandler: function () {}
 
         Text {
             width: parent.width
-            text: qsTr("Closing DSD-neo…")
+            text: qsTr("Closing WTDW Tracker…")
             wrapMode: Text.Wrap
             font.family: Theme.sans
             font.pixelSize: Theme.fontSize(17)

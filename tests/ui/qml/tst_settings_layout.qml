@@ -157,9 +157,9 @@ Item {
             row.activate();
             clipboardProbe.text = "";
             clipboardProbe.paste();
-            compare(clipboardProbe.text, "DSD-neo " + appVersionText.replace(/^v/, ""));
+            compare(clipboardProbe.text, "WTDW Tracker " + appVersionText.replace(/^v/, ""));
             compare(row.subtitle, "Version copied");
-            tryCompare(row, "subtitle", "DSD-neo " + appVersionText.replace(/^v/, "") + " · GPL-3.0", 4000);
+            tryCompare(row, "subtitle", "WTDW Tracker " + appVersionText.replace(/^v/, "") + " · GPL-3.0", 4000);
         }
     }
 }

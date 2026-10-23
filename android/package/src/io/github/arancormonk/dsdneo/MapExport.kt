@@ -39,7 +39,7 @@ object MapExport {
 
     private fun kml(tracks: List<Track>) = buildString {
         append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
-        append("<kml xmlns=\"http://www.opengis.net/kml/2.2\"><Document><name>SIG-SENSE positions</name>\n")
+        append("<kml xmlns=\"http://www.opengis.net/kml/2.2\"><Document><name>WTDW Tracker positions</name>\n")
         append("<Style id=\"radio\"><IconStyle><color>ff0000ff</color></IconStyle></Style>\n")
         append("<Style id=\"track\"><LineStyle><color>ffffc34f</color><width>3</width></LineStyle></Style>\n")
         for (t in tracks) {
@@ -63,7 +63,7 @@ object MapExport {
 
     private fun gpx(tracks: List<Track>) = buildString {
         append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
-        append("<gpx version=\"1.1\" creator=\"SIG-SENSE\" xmlns=\"http://www.topografix.com/GPX/1/1\">\n")
+        append("<gpx version=\"1.1\" creator=\"WTDW Tracker\" xmlns=\"http://www.topografix.com/GPX/1/1\">\n")
         for (t in tracks) {
             val last = t.fixes.lastOrNull() ?: continue
             append("<wpt lat=\"${coord(last.latitude)}\" lon=\"${coord(last.longitude)}\"><time>${iso(last.epochMillis)}</time>")

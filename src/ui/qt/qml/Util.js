@@ -589,7 +589,7 @@ function notIncludedText(items) {
 // false), which only the next start can finish or undo. Settings, the Home card
 // and a refused cancel all say it in these words.
 function restorePartWayText() {
-    return qsTr("This restore is part-way through and can't be cancelled. Close and reopen DSD-neo to finish it.")
+    return qsTr("This restore is part-way through and can't be cancelled. Close and reopen WTDW Tracker to finish it.")
 }
 
 // The monitor's "Signal & site" summary (issue #718) names the site in one

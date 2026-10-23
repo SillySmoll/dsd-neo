@@ -762,13 +762,13 @@ Item {
         function test_inspect_errors_stay_in_the_sheet_data() {
             return [
                 {tag: "WrongPassphrase", field: true, text: "Wrong passphrase, or the file is damaged."},
-                {tag: "NotBackup", file: true, text: "This isn't a DSD-neo backup."},
-                {tag: "NewerVersion", file: true, text: "This backup was made by a newer DSD-neo. Update first."},
-                {tag: "TooLarge", file: true, text: "This file is too large to be a DSD-neo backup."},
+                {tag: "NotBackup", file: true, text: "This isn't a WTDW Tracker backup."},
+                {tag: "NewerVersion", file: true, text: "This backup was made by a newer WTDW Tracker. Update first."},
+                {tag: "TooLarge", file: true, text: "This file is too large to be a WTDW Tracker backup."},
                 {tag: "Damaged", file: true, text: "The backup is damaged."},
                 {tag: "NoSpace", text: "Not enough storage to restore. Free some space and try again."},
                 {tag: "SessionActive", text: "Stop listening before restoring."},
-                {tag: "RestorePending", text: "A restore is already waiting. Cancel it in Settings → Backup, or close and reopen DSD-neo to finish it."},
+                {tag: "RestorePending", text: "A restore is already waiting. Cancel it in Settings → Backup, or close and reopen WTDW Tracker to finish it."},
                 {tag: "Busy", text: "Another backup task is still running. Try again in a moment."},
                 {tag: "Io", file: true, text: "Couldn't read that file. Choose it again, or copy it to this phone first."},
                 // This phone, not the file: the same file can be tried again.
@@ -895,15 +895,15 @@ Item {
 
         function test_confirm_message_data() {
             var day = Qt.formatDate(new Date(1760000000 * 1000), "MMM d, yyyy");
-            var head = "Replace this phone's saved systems (3), scan lists (2), imported files (5), decryption profiles (1), search ranges and settings with the backup from " + day + " (DSD-neo 1.4.0)? Call history and recordings on this phone are kept.";
-            var close = "DSD-neo will close; open it again to finish.";
+            var head = "Replace this phone's saved systems (3), scan lists (2), imported files (5), decryption profiles (1), search ranges and settings with the backup from " + day + " (WTDW Tracker 1.4.0)? Call history and recordings on this phone are kept.";
+            var close = "WTDW Tracker will close; open it again to finish.";
             return [
                 {tag: "every note", summary: fullSummary, has: [head, "2 replay systems will need their recording chosen again.", "1 system carries extra decoder options.", close], lacks: ["Your settings carry"]},
                 {tag: "no notes", summary: Object.assign({}, fullSummary, {recordingsToChoose: 0, systemsWithExtraArgs: 0}), has: [head, close], lacks: ["replay system", "extra decoder"]},
                 {tag: "singular and plural", summary: Object.assign({}, fullSummary, {recordingsToChoose: 1, systemsWithExtraArgs: 4}), has: ["1 replay system will need its recording chosen again.", "4 systems carry extra decoder options.", close], lacks: []},
                 {tag: "settings arguments", summary: Object.assign({}, fullSummary, {appExtraArgs: true}), has: ["Your settings carry extra decoder options.", close], lacks: []},
-                {tag: "no date or version", summary: Object.assign({}, fullSummary, {createdAt: 0, app: ""}), has: ["search ranges and settings with the backup? Call history", close], lacks: ["DSD-neo 1.4.0"]},
-                {tag: "version as Settings shows it", summary: Object.assign({}, fullSummary, {app: "v2.10.0"}), has: ["(DSD-neo 2.10.0)?", close], lacks: ["DSD-neo v2.10.0"]},
+                {tag: "no date or version", summary: Object.assign({}, fullSummary, {createdAt: 0, app: ""}), has: ["search ranges and settings with the backup? Call history", close], lacks: ["WTDW Tracker 1.4.0"]},
+                {tag: "version as Settings shows it", summary: Object.assign({}, fullSummary, {app: "v2.10.0"}), has: ["(WTDW Tracker 2.10.0)?", close], lacks: ["WTDW Tracker v2.10.0"]},
                 {tag: "left out", summary: Object.assign({}, fullSummary, {notIncluded: ["Targets.csv: couldn't be read on this phone", "Metro: groups.csv (named by full path)"]}), has: ["Not included:\nTargets.csv: couldn't be read on this phone\nMetro: groups.csv (named by full path)", close], lacks: []},
                 {tag: "nothing left out", summary: fullSummary, has: [close], lacks: ["Not included"]}
             ];
@@ -922,14 +922,14 @@ Item {
             for (var absent of data.lacks)
                 verify(confirm.message.indexOf(absent) < 0, "unexpected: " + absent);
             // The close sentence ends the message.
-            compare(confirm.message.lastIndexOf("DSD-neo will close; open it again to finish."), confirm.message.length - "DSD-neo will close; open it again to finish.".length);
+            compare(confirm.message.lastIndexOf("WTDW Tracker will close; open it again to finish."), confirm.message.length - "WTDW Tracker will close; open it again to finish.".length);
             compare(calls("commitRestore").length, 0);
             verify(backup.flowActive);
         }
 
         function test_backup_text_stays_plain() {
             var confirm = toConfirm(Object.assign({}, fullSummary, {app: "<b>9.9</b> %1"}));
-            verify(confirm.message.indexOf("(DSD-neo <b>9.9</b> %1)") >= 0, confirm.message);
+            verify(confirm.message.indexOf("(WTDW Tracker <b>9.9</b> %1)") >= 0, confirm.message);
             var message = findChild(confirm, "confirmMessage");
             compare(message.text, confirm.message);
             compare(message.textFormat, Text.PlainText);
@@ -944,7 +944,7 @@ Item {
             tryCompare(confirm, "visible", false);
             var closing = part("backupClosingSheet");
             tryCompare(closing, "visible", true);
-            compare(closing.accessibleName, "Closing DSD-neo…");
+            compare(closing.accessibleName, "Closing WTDW Tracker…");
             // DSD-neo is going away: nothing leaves the sheet, and auto-start stays held.
             for (var method of ["back", "host", "scrim"]) {
                 dismissBy(closing, method);
@@ -967,7 +967,7 @@ Item {
             compare(flow.step, "");
             var line = findChild(settings, "settingsBackupPendingNotice");
             tryCompare(line, "visible", true);
-            compare(line.text, "Restore is ready. Close DSD-neo and open it again to finish.");
+            compare(line.text, "Restore is ready. Close WTDW Tracker and open it again to finish.");
             compare(line.color, Ui.Theme.alert);
             var restoreRow = findChild(settings, "settingsBackupRestoreRow");
             verify(!restoreRow.enabled, "a waiting restore keeps the row shut");
@@ -988,8 +988,8 @@ Item {
 
         function test_cancel_restore_outcomes_data() {
             return [
-                {tag: "kept", reply: {ok: false, discarded: false, error: "Io"}, pending: true, text: "Couldn't cancel the restore. It still finishes when DSD-neo opens again.", problem: true},
-                {tag: "left files", reply: {ok: false, discarded: true, error: "Io"}, pending: false, text: "Restore cancelled. Its leftover files are removed the next time DSD-neo opens.", problem: false}
+                {tag: "kept", reply: {ok: false, discarded: false, error: "Io"}, pending: true, text: "Couldn't cancel the restore. It still finishes when WTDW Tracker opens again.", problem: true},
+                {tag: "left files", reply: {ok: false, discarded: true, error: "Io"}, pending: false, text: "Restore cancelled. Its leftover files are removed the next time WTDW Tracker opens.", problem: false}
             ];
         }
 
@@ -1009,7 +1009,7 @@ Item {
             verify(testContext.setBackup("restorePending", true));
             var line = findChild(settings, "settingsBackupPendingNotice");
             tryCompare(line, "visible", true);
-            compare(line.text, "Restore is ready. Close DSD-neo and open it again to finish.");
+            compare(line.text, "Restore is ready. Close WTDW Tracker and open it again to finish.");
             var cancel = findChild(settings, "settingsBackupCancelRestore");
             verify(cancel.visible);
             cancel.activate();
@@ -1021,19 +1021,19 @@ Item {
 
         function test_restore_part_way_through_cannot_be_cancelled() {
             // Its apply has started: only the next start can finish it, so nothing offers to cancel it.
-            verify(testContext.setBackup("startupOutcome", {kind: "stuck", message: "Restore couldn't finish. Free up storage and reopen DSD-neo"}));
+            verify(testContext.setBackup("startupOutcome", {kind: "stuck", message: "Restore couldn't finish. Free up storage and reopen WTDW Tracker"}));
             verify(testContext.setBackup("restorePending", true));
             verify(testContext.setBackup("restoreCancellable", false));
             var line = findChild(settings, "settingsBackupPendingNotice");
             tryCompare(line, "visible", true);
-            compare(line.text, "This restore is part-way through and can't be cancelled. Close and reopen DSD-neo to finish it.");
+            compare(line.text, "This restore is part-way through and can't be cancelled. Close and reopen WTDW Tracker to finish it.");
             compare(line.color, Ui.Theme.alert);
             verify(!findChild(settings, "settingsBackupCancelRestore").visible);
             verify(buttons(settings).indexOf("Cancel restore") < 0);
             verify(!findChild(settings, "settingsBackupRestoreRow").enabled);
             // Once it can be cancelled again (a later start rolled it back), the way out returns.
             verify(testContext.setBackup("restoreCancellable", true));
-            compare(line.text, "Restore is ready. Close DSD-neo and open it again to finish.");
+            compare(line.text, "Restore is ready. Close WTDW Tracker and open it again to finish.");
             verify(findChild(settings, "settingsBackupCancelRestore").visible);
         }
 
@@ -1044,7 +1044,7 @@ Item {
             findChild(settings, "settingsBackupCancelRestore").activate();
             compare(calls("discardRestore").length, 1);
             verify(backup.restorePending);
-            compare(notice().text, "This restore is part-way through and can't be cancelled. Close and reopen DSD-neo to finish it.");
+            compare(notice().text, "This restore is part-way through and can't be cancelled. Close and reopen WTDW Tracker to finish it.");
             compare(notice().color, Ui.Theme.alert);
             verify(findChild(settings, "settingsBackupPendingNotice").visible);
         }
@@ -1094,7 +1094,7 @@ Item {
 
         function test_commit_refused_for_a_moment_data() {
             return [
-                {tag: "SessionActive", text: "DSD-neo is still stopping a session. Try again in a moment."},
+                {tag: "SessionActive", text: "WTDW Tracker is still stopping a session. Try again in a moment."},
                 {tag: "Busy", text: "Another backup task is still running. Try again in a moment."}
             ];
         }
@@ -1261,10 +1261,10 @@ Item {
                 {tag: "applied, no recordings", outcome: Object.assign({kind: "applied", message: "", recordingsToChoose: 0}, counts), title: "Backup restored", lines: [], lacks: "replay system", problem: false, actions: ["Dismiss"]},
                 {tag: "applied, left out", outcome: Object.assign({kind: "applied", message: "", recordingsToChoose: 0, notIncluded: ["Targets.csv: couldn't be read on this phone"]}, counts), title: "Backup restored", lines: ["Not included:\nTargets.csv: couldn't be read on this phone"], problem: false, actions: ["Dismiss"]},
                 {tag: "failed", outcome: Object.assign({kind: "failed", message: "A file of the current configuration couldn't be read. Nothing was changed", recordingsToChoose: 0}, counts), title: "Restore not applied. Nothing was changed.", lines: ["A file of the current configuration couldn't be read."], problem: true, actions: ["Dismiss"]},
-                {tag: "deferred", outcome: Object.assign({kind: "deferred", message: "The decoder was busy, so the restore waits for the next start", recordingsToChoose: 0}, counts), pending: true, title: "The decoder was busy, so the restore waits for the next start.", lines: ["Reopen DSD-neo to try again."], problem: true, actions: ["Discard restore", "Dismiss"]},
-                {tag: "deferred for storage", outcome: Object.assign({kind: "deferred", message: "Not enough free storage to restore. Free up storage and reopen DSD-neo", recordingsToChoose: 0}, counts), pending: true, title: "Not enough free storage to restore. Free up storage and reopen DSD-neo.", lines: [], lacks: "Reopen DSD-neo to try again.", problem: true, actions: ["Discard restore", "Dismiss"]},
-                {tag: "deferred part-way through", outcome: Object.assign({kind: "deferred", message: "The decoder was busy, so the restore waits for the next start", recordingsToChoose: 0}, counts), pending: true, partWay: true, title: "The decoder was busy, so the restore waits for the next start.", lines: ["This restore is part-way through and can't be cancelled. Close and reopen DSD-neo to finish it."], lacks: "Reopen DSD-neo to try again.", problem: true, actions: ["Dismiss"]},
-                {tag: "stuck", outcome: Object.assign({kind: "stuck", message: "Restore couldn't finish. Free up storage and reopen DSD-neo", recordingsToChoose: 0}, counts), title: "Restore couldn't finish. Free up storage and reopen DSD-neo.", lines: [], problem: true, actions: ["Dismiss"]}
+                {tag: "deferred", outcome: Object.assign({kind: "deferred", message: "The decoder was busy, so the restore waits for the next start", recordingsToChoose: 0}, counts), pending: true, title: "The decoder was busy, so the restore waits for the next start.", lines: ["Reopen WTDW Tracker to try again."], problem: true, actions: ["Discard restore", "Dismiss"]},
+                {tag: "deferred for storage", outcome: Object.assign({kind: "deferred", message: "Not enough free storage to restore. Free up storage and reopen WTDW Tracker", recordingsToChoose: 0}, counts), pending: true, title: "Not enough free storage to restore. Free up storage and reopen WTDW Tracker.", lines: [], lacks: "Reopen WTDW Tracker to try again.", problem: true, actions: ["Discard restore", "Dismiss"]},
+                {tag: "deferred part-way through", outcome: Object.assign({kind: "deferred", message: "The decoder was busy, so the restore waits for the next start", recordingsToChoose: 0}, counts), pending: true, partWay: true, title: "The decoder was busy, so the restore waits for the next start.", lines: ["This restore is part-way through and can't be cancelled. Close and reopen WTDW Tracker to finish it."], lacks: "Reopen WTDW Tracker to try again.", problem: true, actions: ["Dismiss"]},
+                {tag: "stuck", outcome: Object.assign({kind: "stuck", message: "Restore couldn't finish. Free up storage and reopen WTDW Tracker", recordingsToChoose: 0}, counts), title: "Restore couldn't finish. Free up storage and reopen WTDW Tracker.", lines: [], problem: true, actions: ["Dismiss"]}
             ];
         }
 
@@ -1314,15 +1314,15 @@ Item {
         function test_deferred_discard_data() {
             return [
                 {tag: "discarded", reply: {ok: true, discarded: true, error: ""}, stays: false},
-                {tag: "refused", reply: {ok: false, discarded: false, error: "Io"}, stays: true, text: "Couldn't discard the restore. DSD-neo tries it again the next time it opens."},
-                {tag: "part-way through", reply: {ok: false, discarded: false, error: "RestoreInProgress"}, stays: true, text: "This restore is part-way through and can't be cancelled. Close and reopen DSD-neo to finish it."}
+                {tag: "refused", reply: {ok: false, discarded: false, error: "Io"}, stays: true, text: "Couldn't discard the restore. WTDW Tracker tries it again the next time it opens."},
+                {tag: "part-way through", reply: {ok: false, discarded: false, error: "RestoreInProgress"}, stays: true, text: "This restore is part-way through and can't be cancelled. Close and reopen WTDW Tracker to finish it."}
             ];
         }
 
         function test_deferred_discard(data) {
             app.currentTab = 0;
             var card = findChild(findChild(app, "homeScreen"), "backupResultCard");
-            verify(testContext.setBackup("startupOutcome", {kind: "deferred", message: "Not enough free storage to restore. Free up storage and reopen DSD-neo"}));
+            verify(testContext.setBackup("startupOutcome", {kind: "deferred", message: "Not enough free storage to restore. Free up storage and reopen WTDW Tracker"}));
             verify(testContext.setBackup("restorePending", true));
             tryCompare(card, "visible", true);
             testContext.setBackupReply("discardDeferredRestore", data.reply);
@@ -1343,10 +1343,10 @@ Item {
         function test_result_card_announces_once() {
             app.currentTab = 0;
             var card = findChild(findChild(app, "homeScreen"), "backupResultCard");
-            verify(testContext.setBackup("startupOutcome", {kind: "stuck", message: "Restore couldn't finish. Free up storage and reopen DSD-neo"}));
+            verify(testContext.setBackup("startupOutcome", {kind: "stuck", message: "Restore couldn't finish. Free up storage and reopen WTDW Tracker"}));
             tryCompare(card, "visible", true);
             tryCompare(card, "announcements", 1);
-            compare(card.announced, "Restore couldn't finish. Free up storage and reopen DSD-neo.");
+            compare(card.announced, "Restore couldn't finish. Free up storage and reopen WTDW Tracker.");
             app.currentTab = 2;
             tryCompare(card, "visible", false);
             app.currentTab = 0;
