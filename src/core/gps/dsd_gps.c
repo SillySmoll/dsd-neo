@@ -71,7 +71,7 @@ gps_lrrp_row_allowed(const dsd_opts* opts, const dsd_state* state, int slot) {
 
 static void
 gps_write_lrrp_compact(const dsd_opts* opts, const dsd_state* state, int slot, uint32_t src, double latitude,
-                       double longitude, int speed_kph, int azimuth) {
+                       double longitude, int speed_kph, int azimuth, const char* kind) {
     if (!gps_lrrp_row_allowed(opts, state, slot)) {
         return;
     }
@@ -93,13 +93,15 @@ gps_write_lrrp_compact(const dsd_opts* opts, const dsd_state* state, int slot, u
     DSD_FPRINTF(p_file, "%.6lf\t", longitude);
     DSD_FPRINTF(p_file, "%d\t ", speed_kph);
     DSD_FPRINTF(p_file, "%d\t ", azimuth);
+    // SIG-SENSE: an eighth column names the report type (LRRP, LIP, NMEA, GPS) for the map's filters.
+    DSD_FPRINTF(p_file, "%s\t", kind ? kind : "GPS");
     DSD_FPRINTF(p_file, "\n");
     fclose(p_file);
 }
 
 static void DSD_ATTR_USED
 gps_write_lrrp_slash_colon(const dsd_opts* opts, const dsd_state* state, int slot, uint32_t src, double latitude,
-                           double longitude, int speed_kph, int azimuth) {
+                           double longitude, int speed_kph, int azimuth, const char* kind) {
     if (!gps_lrrp_row_allowed(opts, state, slot)) {
         return;
     }
@@ -121,6 +123,8 @@ gps_write_lrrp_slash_colon(const dsd_opts* opts, const dsd_state* state, int slo
     DSD_FPRINTF(p_file, "%.6lf\t", longitude);
     DSD_FPRINTF(p_file, "%d\t ", speed_kph);
     DSD_FPRINTF(p_file, "%d\t ", azimuth);
+    // SIG-SENSE: an eighth column names the report type (LRRP, LIP, NMEA, GPS) for the map's filters.
+    DSD_FPRINTF(p_file, "%s\t", kind ? kind : "GPS");
     DSD_FPRINTF(p_file, "\n");
     fclose(p_file);
 }
@@ -376,7 +380,7 @@ lip_report(const dsd_opts* opts, dsd_state* state, const lip_fields* f, uint32_t
             // steps like a counter; recording them put radios on the equator in the map.
             DSD_FPRINTF(stderr, " Zero latitude: not recorded;");
         } else {
-            gps_write_lrrp_compact(opts, state, slot, src, lat_sf * latitude, lon_sf * longitude, vt, dt);
+            gps_write_lrrp_compact(opts, state, slot, src, lat_sf * latitude, lon_sf * longitude, vt, dt, "LIP");
         }
     } else {
         DSD_FPRINTF(stderr, " Position Calculation Error;");
@@ -531,7 +535,7 @@ nmea_store_and_report(const dsd_opts* opts, dsd_state* state, int slot, uint32_t
 
     int speed_int = (int)speed_kph;
     int azimuth = (type == 2) ? (int)cog : 0;
-    gps_write_lrrp_compact(opts, state, slot, src, latitude, longitude, speed_int, azimuth);
+    gps_write_lrrp_compact(opts, state, slot, src, latitude, longitude, speed_int, azimuth, "NMEA");
 }
 
 void
@@ -711,7 +715,7 @@ nmea_harris(const dsd_opts* opts, dsd_state* state, const uint8_t* input, uint32
     (void)gps_enrich_active_call(state, slot_idx, src, state->dmr_embedded_gps[slot_idx], NULL);
 
     // save to LRRP report for mapping/logging
-    gps_write_lrrp_compact(opts, state, slot_idx, src, latitude, longitude, 0, (int)heading);
+    gps_write_lrrp_compact(opts, state, slot_idx, src, latitude, longitude, 0, (int)heading, "GPS");
 }
 
 //externalize embedded GPS - Confirmed working now on NE, NW, SE, and SW coordinates
@@ -750,7 +754,7 @@ dmr_embedded_gps_store_clear_fix(const dsd_opts* opts, dsd_state* state, uint8_t
         && call.ota_source_id <= UINT32_MAX) {
         src = (uint32_t)call.ota_source_id;
     }
-    gps_write_lrrp_compact(opts, state, slot, src, fix->lat_sf * fix->latitude, fix->lon_sf * fix->longitude, 0, 0);
+    gps_write_lrrp_compact(opts, state, slot, src, fix->lat_sf * fix->latitude, fix->lon_sf * fix->longitude, 0, 0, "GPS");
 }
 
 void
@@ -909,7 +913,7 @@ apx_embedded_gps(const dsd_opts* opts, dsd_state* state, const uint8_t lc_bits[]
             }
 
             //save to LRRP report for mapping/logging
-            gps_write_lrrp_compact(opts, state, slot_idx, src, latitude, longitude, 0, 0);
+            gps_write_lrrp_compact(opts, state, slot_idx, src, latitude, longitude, 0, 0, "GPS");
         }
     }
 
@@ -1067,7 +1071,7 @@ nxdn_gps_report(const dsd_opts* opts, dsd_state* state, const uint8_t* input, ui
     }
 
     if (src != 0U) {
-        gps_write_lrrp_slash_colon(opts, state, 0, src, latitude, longitude, (int)speed_kph, (int)heading);
+        gps_write_lrrp_slash_colon(opts, state, 0, src, latitude, longitude, (int)speed_kph, (int)heading, "GPS");
     }
 
     state->dmr_lrrp_source[0] = 0U;

@@ -22,6 +22,18 @@ import java.time.ZoneId
  * both in the phone's local time.
  */
 object PositionLog {
+    const val KIND_LRRP = "LRRP"
+    const val KIND_USBD = "USBD"
+    const val KIND_GPS = "GPS"
+
+    /** The engine's eighth column (SIG-SENSE builds) to a map category; rows without one count as GPS. */
+    @JvmStatic
+    fun kindOf(tag: String?): String = when (tag?.uppercase()) {
+        "LRRP" -> KIND_LRRP
+        "LIP", "USBD" -> KIND_USBD
+        else -> KIND_GPS
+    }
+
     /** Rows older than the tail this size are not read; the file only grows. */
     private const val MAX_TAIL_BYTES = 1L shl 20
 
@@ -32,6 +44,8 @@ object PositionLog {
         val speedKph: Double,
         val heading: Int,
         val epochMillis: Long,
+        /** [KIND_LRRP], [KIND_USBD] (LIP, as USBD carries it) or [KIND_GPS] (NMEA, embedded GPS, others). */
+        val kind: String = KIND_GPS,
     )
 
     data class Radio(
@@ -105,7 +119,7 @@ object PositionLog {
         val speed = f.getOrNull(5)?.toDoubleOrNull() ?: 0.0
         val heading = f.getOrNull(6)?.toDoubleOrNull()?.toInt() ?: 0
         val epoch = LocalDateTime.of(date, time).atZone(zone).toInstant().toEpochMilli()
-        return Fix(source, lat, lon, speed, heading, epoch)
+        return Fix(source, lat, lon, speed, heading, epoch, kindOf(f.getOrNull(7)))
     }
 
     private fun parseDate(s: String): LocalDate? {

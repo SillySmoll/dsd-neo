@@ -137,6 +137,11 @@ class PositionMapActivity : Activity() {
     private var baseMap = "osm"
     private var windowIndex = 2
     private var tgFilter: String? = null
+    /** Report types shown: LRRP, USBD (LIP) and other GPS. */
+    private val kindsShown = linkedSetOf(PositionLog.KIND_LRRP, PositionLog.KIND_USBD, PositionLog.KIND_GPS)
+    /** Radio ID filter as typed ("30500-30600, 61121"); empty shows every radio. */
+    private var idFilterText = ""
+    private var idRanges: List<LongRange> = emptyList()
     private val overlays = LinkedHashSet<String>()
     private var radar = "off"
     private var cacheMb = 512
@@ -708,11 +713,15 @@ class PositionMapActivity : Activity() {
         val since = windowStart()
         val context = applicationContext
         if (isDestroyed || io.isShutdown) return
+        val kinds = kindsShown.toSet()
+        val ranges = idRanges
         runCatching {
             io.execute {
-                val fixes = PositionLog.readFixes(context)
+                val every = PositionLog.readFixes(context)
+                // The map, list, replay and exports show only the chosen types and IDs; Find searches all.
+                val fixes = every.filter { it.kind in kinds && idAllowed(ranges, it.source) }
                 val loaded = PositionLog.units(fixes, since)
-                val all = if (since == 0L) loaded else PositionLog.units(fixes, 0L)
+                val all = PositionLog.units(every, 0L)
                 val known = TalkerLog.snapshot(context)
                 val named = RadioNames.all(context)
                 handler.post { names = named; showPositions(fixes, loaded, all, known) }
@@ -775,6 +784,8 @@ class PositionMapActivity : Activity() {
                 })
             }
             if (filter != null) append(" · TG ").append(filter)
+            if (idRanges.isNotEmpty()) append(" · IDs ").append(idFilterText)
+            if (kindsShown.size < 3) append(" · ").append(kindsShown.joinToString("+") { kindLabel(it) })
         }
         emptyBanner.visibility = if (t == null && loaded.isEmpty() && filter == null) View.VISIBLE else View.GONE
         val s = style
@@ -1176,6 +1187,7 @@ class PositionMapActivity : Activity() {
             append(" (").append(ageText(System.currentTimeMillis() - fix.epochMillis)).append(" ago)\n")
             append("Speed: ").append(String.format(Locale.US, "%.1f km/h", fix.speedKph))
             append("   Heading: ").append(fix.heading).append("°\n")
+            append("Report type: ").append(kindLabel(fix.kind)).append('\n')
             append("Reports in window: ").append(radio.reports)
             if (talker != null && talker.talkgroup.isNotEmpty()) {
                 append("\nLast talkgroup: ").append(talker.talkgroup)
@@ -1248,6 +1260,9 @@ class PositionMapActivity : Activity() {
             getString(R.string.map_menu_base, BASE_MAP_NAMES[baseMap] ?: baseMap),
             getString(R.string.map_menu_overlays, overlays.size),
             getString(R.string.map_menu_radar, RADARS[radar]?.label ?: getString(R.string.map_off)),
+            getString(R.string.map_menu_types, if (kindsShown.size == 3) getString(R.string.map_all)
+                else if (kindsShown.isEmpty()) getString(R.string.map_none) else kindsShown.joinToString(", ") { kindLabel(it) }),
+            getString(R.string.map_menu_ids, if (idRanges.isEmpty()) getString(R.string.map_all) else idFilterText),
             getString(R.string.map_menu_tg, tgFilter?.let { "TG $it" } ?: getString(R.string.map_all)),
             getString(R.string.map_menu_names, names.size),
             getString(R.string.map_menu_timeline),
@@ -1260,14 +1275,69 @@ class PositionMapActivity : Activity() {
                 0 -> chooseBaseMap()
                 1 -> chooseOverlays()
                 2 -> chooseRadar()
-                3 -> chooseTalkgroup()
-                4 -> showNames()
-                5 -> startTimeline()
-                6 -> chooseExport()
-                7 -> chooseCache()
-                8 -> showDiagnostics()
+                3 -> chooseKinds()
+                4 -> chooseIdFilter()
+                5 -> chooseTalkgroup()
+                6 -> showNames()
+                7 -> startTimeline()
+                8 -> chooseExport()
+                9 -> chooseCache()
+                10 -> showDiagnostics()
             }
         }.setNegativeButton(android.R.string.cancel, null).show()
+    }
+
+    private fun kindLabel(kind: String): String = when (kind) {
+        PositionLog.KIND_LRRP -> "LRRP"
+        PositionLog.KIND_USBD -> "USBD"
+        else -> "GPS"
+    }
+
+    private fun chooseKinds() {
+        val kinds = listOf(PositionLog.KIND_LRRP, PositionLog.KIND_USBD, PositionLog.KIND_GPS)
+        val labels = arrayOf(getString(R.string.map_type_lrrp), getString(R.string.map_type_usbd), getString(R.string.map_type_gps))
+        val checked = kinds.map { it in kindsShown }.toBooleanArray()
+        dialog()
+            .setTitle(R.string.map_types_title)
+            .setMultiChoiceItems(labels, checked) { _, which, isChecked -> checked[which] = isChecked }
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                kindsShown.clear()
+                kinds.forEachIndexed { i, k -> if (checked[i]) kindsShown.add(k) }
+                savePreferences()
+                refreshPositions()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun chooseIdFilter() {
+        val input = field(getString(R.string.map_ids_hint), idFilterText, numeric = false)
+        input.inputType = InputType.TYPE_CLASS_TEXT
+        val help = TextView(this).apply {
+            text = getString(R.string.map_ids_help)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setPadding(0, dp(8), 0, 0)
+        }
+        val b = dialog()
+            .setTitle(R.string.map_ids_title)
+            .setView(boxOf(input, help))
+            .setPositiveButton(android.R.string.ok) { _, _ -> applyIdFilter(input.text.toString()) }
+            .setNegativeButton(android.R.string.cancel, null)
+        if (idRanges.isNotEmpty()) b.setNeutralButton(R.string.map_ids_clear) { _, _ -> applyIdFilter("") }
+        b.show()
+        input.requestFocus()
+    }
+
+    private fun applyIdFilter(text: String) {
+        val ranges = parseIdRanges(text)
+        if (text.isNotBlank() && ranges.isEmpty()) {
+            toast(getString(R.string.map_ids_invalid))
+            return
+        }
+        idRanges = ranges
+        idFilterText = if (ranges.isEmpty()) "" else text.trim().replace(Regex("\\s*,\\s*"), ", ")
+        savePreferences()
+        refreshPositions()
     }
 
     private fun chooseBaseMap() {
@@ -1936,6 +2006,12 @@ class PositionMapActivity : Activity() {
         p.getStringSet(KEY_OVERLAYS, emptySet())?.filter { id -> OVERLAYS.any { it.id == id } }?.let { overlays.addAll(it) }
         radar = p.getString(KEY_RADAR, "off")?.takeIf { it == "off" || it in RADARS } ?: "off"
         cacheMb = p.getInt(KEY_CACHE, 512)
+        p.getStringSet(KEY_KINDS, null)?.let { saved ->
+            kindsShown.clear()
+            kindsShown.addAll(saved.filter { it in setOf(PositionLog.KIND_LRRP, PositionLog.KIND_USBD, PositionLog.KIND_GPS) })
+        }
+        idFilterText = p.getString(KEY_IDS, "") ?: ""
+        idRanges = parseIdRanges(idFilterText)
     }
 
     private fun savePreferences() {
@@ -1943,7 +2019,8 @@ class PositionMapActivity : Activity() {
             .putString(KEY_BASE, baseMap).putInt(KEY_WINDOW, windowIndex)
             .putBoolean(KEY_FOLLOW, followTalker).putString(KEY_TG, tgFilter ?: "")
             .putStringSet(KEY_OVERLAYS, LinkedHashSet(overlays)).putString(KEY_RADAR, radar)
-            .putInt(KEY_CACHE, cacheMb).apply()
+            .putInt(KEY_CACHE, cacheMb)
+            .putStringSet(KEY_KINDS, LinkedHashSet(kindsShown)).putString(KEY_IDS, idFilterText).apply()
     }
 
     // ---- Lifecycle -----------------------------------------------------------------------
@@ -2022,6 +2099,8 @@ class PositionMapActivity : Activity() {
         private const val KEY_OVERLAYS = "overlays"
         private const val KEY_RADAR = "radar"
         private const val KEY_CACHE = "cache_mb"
+        private const val KEY_KINDS = "report_kinds"
+        private const val KEY_IDS = "id_filter"
         private const val REQ_IMPORT_NAMES = 4102
         /** Dot colours by age of the last report: green, then yellow, then red. */
         private const val GREEN_MS = 3 * 60_000L
@@ -2121,6 +2200,25 @@ class PositionMapActivity : Activity() {
                 "https://services1.arcgis.com/YuVBSS7Y1of2Qud1/arcgis/rest/services/Tennessee_Property_Boundaries_Public_Use/FeatureServer/0/query",
                 "#2196f3", 0.04, 15.0),
         )
+
+        /** "30500-30600, 61121; 70000 - 70999" to ranges; anything unreadable is skipped. */
+        @JvmStatic
+        fun parseIdRanges(text: String): List<LongRange> = text.split(',', ';', '\n')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .mapNotNull { part ->
+                val m = Regex("""^(\d{1,10})\s*(?:-|to|–)\s*(\d{1,10})$""").find(part)
+                if (m != null) {
+                    val a = m.groupValues[1].toLong()
+                    val b = m.groupValues[2].toLong()
+                    if (a <= b) a..b else b..a
+                } else {
+                    part.toLongOrNull()?.let { it..it }
+                }
+            }
+
+        @JvmStatic
+        fun idAllowed(ranges: List<LongRange>, id: Long): Boolean = ranges.isEmpty() || ranges.any { id in it }
 
         /** Called by name from decoder_host_android.cpp; keep in proguard-rules.pro. */
         @JvmStatic

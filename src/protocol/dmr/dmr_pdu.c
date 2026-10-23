@@ -1547,6 +1547,7 @@ dmr_lrrp_write_file_if_needed(const dsd_opts* opts, const dmr_lrrp_parse_result*
     DSD_FPRINTF(pFile, "%.5lf\t", s->lon);
     DSD_FPRINTF(pFile, "%.3lf\t ", (best->velocity_mph * 1.60934));
     DSD_FPRINTF(pFile, "%d\t", (int)best->heading_deg);
+    DSD_FPRINTF(pFile, "LRRP\t"); // SIG-SENSE: report type column for the map's filters.
     DSD_FPRINTF(pFile, "\n");
     fclose(pFile);
 }
@@ -1799,6 +1800,7 @@ dmr_locn_write_file(const dsd_opts* opts, const dsd_state* state, double latitud
     DSD_FPRINTF(pFile, "%.5lf\t", longitude);
     DSD_FPRINTF(pFile, "%.3lf\t ", 0.0);
     DSD_FPRINTF(pFile, "%d\t", 0);
+    DSD_FPRINTF(pFile, "NMEA\t"); // SIG-SENSE: report type column for the map's filters.
     DSD_FPRINTF(pFile, "\n");
     fclose(pFile);
 }
