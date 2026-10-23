@@ -58,6 +58,7 @@ import org.maplibre.android.maps.Style
 import org.maplibre.android.offline.OfflineManager
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.CircleLayer
+import org.maplibre.android.style.layers.Layer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
@@ -144,6 +145,12 @@ class PositionMapActivity : Activity() {
     private var emergencySeenMs = -1L
     private var pendingFocus: Long? = null
     private var overlayGeneration = 0
+
+    /** What went wrong building the map, for Layers → Map diagnostics. */
+    private val mapProblems = ArrayList<String>()
+    private var styleLoads = 0
+    private var lastDotsSent = 0
+    private var lastRenderSkipped = ""
 
     private var myLocation: Location? = null
     private var locationManager: LocationManager? = null
@@ -427,7 +434,13 @@ class PositionMapActivity : Activity() {
         overlayGeneration++
         readyMap.setStyle(Style.Builder().fromJson(styleJson())) { loaded ->
             style = loaded
-            installLayers(loaded)
+            styleLoads++
+            try {
+                installLayers(loaded)
+            } catch (e: Throwable) {
+                mapProblems += "setup: ${e.javaClass.simpleName}: ${e.message}"
+            }
+            if (mapProblems.isNotEmpty()) toast(getString(R.string.map_problem_toast))
             refreshPositions()
             updateMyLocationSource()
             refreshLiveOverlays()
@@ -505,31 +518,52 @@ class PositionMapActivity : Activity() {
         return concat
     }
 
+    /** Adds [layer]; on failure records why and, when given, adds [fallback] instead. */
+    private fun addLayerSafely(s: Style, layer: Layer, fallback: (() -> Layer)? = null) {
+        try {
+            s.addLayer(layer)
+        } catch (e: Throwable) {
+            mapProblems += "layer ${layer.id}: ${e.javaClass.simpleName}: ${e.message}"
+            if (fallback != null) {
+                try {
+                    s.addLayer(fallback())
+                    mapProblems += "layer ${layer.id}: plain fallback added"
+                } catch (e2: Throwable) {
+                    mapProblems += "fallback ${layer.id}: ${e2.javaClass.simpleName}: ${e2.message}"
+                }
+            }
+        }
+    }
+
     private fun installLayers(s: Style) {
         val empty = FeatureCollection.fromFeatures(emptyList())
         for (id in listOf(SRC_TRACKS, SRC_UNITS, SRC_ME, SRC_HISTORY_LINE, SRC_HISTORY_PTS)) {
-            s.addSource(GeoJsonSource(id, empty))
+            try {
+                if (s.getSource(id) == null) s.addSource(GeoJsonSource(id, empty))
+            } catch (e: Throwable) {
+                mapProblems += "source $id: ${e.javaClass.simpleName}: ${e.message}"
+            }
         }
-        s.addLayer(LineLayer(LAYER_TRACKS, SRC_TRACKS).withProperties(
+        addLayerSafely(s, LineLayer(LAYER_TRACKS, SRC_TRACKS).withProperties(
             PropertyFactory.lineColor(Color.parseColor("#4FC3F7")),
             PropertyFactory.lineWidth(2.5f),
             PropertyFactory.lineOpacity(0.7f),
             PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
             PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
         ))
-        s.addLayer(LineLayer(LAYER_HISTORY_LINE, SRC_HISTORY_LINE).withProperties(
+        addLayerSafely(s, LineLayer(LAYER_HISTORY_LINE, SRC_HISTORY_LINE).withProperties(
             PropertyFactory.lineColor(Color.parseColor("#B388FF")),
             PropertyFactory.lineWidth(3.5f),
             PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
             PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
         ))
-        s.addLayer(CircleLayer(LAYER_HISTORY_PTS, SRC_HISTORY_PTS).withProperties(
+        addLayerSafely(s, CircleLayer(LAYER_HISTORY_PTS, SRC_HISTORY_PTS).withProperties(
             PropertyFactory.circleRadius(4.5f),
             PropertyFactory.circleColor(Color.WHITE),
             PropertyFactory.circleStrokeColor(Color.parseColor("#7C4DFF")),
             PropertyFactory.circleStrokeWidth(2f),
         ))
-        s.addLayer(SymbolLayer(LAYER_HISTORY_LABELS, SRC_HISTORY_PTS).withProperties(
+        addLayerSafely(s, SymbolLayer(LAYER_HISTORY_LABELS, SRC_HISTORY_PTS).withProperties(
             PropertyFactory.textField(Expression.get("time")),
             PropertyFactory.textFont(arrayOf("Open Sans Regular")),
             PropertyFactory.textSize(11f),
@@ -540,25 +574,25 @@ class PositionMapActivity : Activity() {
             PropertyFactory.textOffset(arrayOf(0.8f, 0f)),
             PropertyFactory.textAllowOverlap(false),
         ))
-        s.addLayer(CircleLayer(LAYER_ME, SRC_ME).withProperties(
+        addLayerSafely(s, CircleLayer(LAYER_ME, SRC_ME).withProperties(
             PropertyFactory.circleRadius(7f),
             PropertyFactory.circleColor(Color.parseColor("#2979FF")),
             PropertyFactory.circleStrokeColor(Color.WHITE),
             PropertyFactory.circleStrokeWidth(2.5f),
         ))
-        s.addLayer(CircleLayer(LAYER_EMERGENCY, SRC_UNITS).withProperties(
+        addLayerSafely(s, CircleLayer(LAYER_EMERGENCY, SRC_UNITS).withProperties(
             PropertyFactory.circleRadius(20f),
             PropertyFactory.circleColor(Color.parseColor("#55FF1744")),
             PropertyFactory.circleStrokeColor(Color.parseColor("#FF1744")),
             PropertyFactory.circleStrokeWidth(3f),
         ).withFilter(Expression.toBool(Expression.get("emergency"))))
-        s.addLayer(CircleLayer(LAYER_SELECTED, SRC_UNITS).withProperties(
+        addLayerSafely(s, CircleLayer(LAYER_SELECTED, SRC_UNITS).withProperties(
             PropertyFactory.circleRadius(16f),
             PropertyFactory.circleColor(Color.parseColor("#3300E5FF")),
             PropertyFactory.circleStrokeColor(Color.parseColor("#00E5FF")),
             PropertyFactory.circleStrokeWidth(3f),
         ).withFilter(Expression.toBool(Expression.get("selected"))))
-        s.addLayer(CircleLayer(LAYER_UNITS, SRC_UNITS).withProperties(
+        addLayerSafely(s, CircleLayer(LAYER_UNITS, SRC_UNITS).withProperties(
             PropertyFactory.circleRadius(8f),
             PropertyFactory.circleColor(
                 Expression.switchCase(
@@ -571,8 +605,15 @@ class PositionMapActivity : Activity() {
             PropertyFactory.circleStrokeWidth(2f),
             PropertyFactory.circleOpacity(Expression.toNumber(Expression.get("fade"))),
             PropertyFactory.circleStrokeOpacity(Expression.toNumber(Expression.get("fade"))),
-        ))
-        s.addLayer(SymbolLayer(LAYER_LABELS, SRC_UNITS).withProperties(
+        )) {
+            CircleLayer(LAYER_UNITS, SRC_UNITS).withProperties(
+                PropertyFactory.circleRadius(8f),
+                PropertyFactory.circleColor(Color.parseColor("#FF5252")),
+                PropertyFactory.circleStrokeColor(Color.parseColor("#101418")),
+                PropertyFactory.circleStrokeWidth(2f),
+            )
+        }
+        addLayerSafely(s, SymbolLayer(LAYER_LABELS, SRC_UNITS).withProperties(
             PropertyFactory.textField(Expression.get("label")),
             PropertyFactory.textFont(arrayOf("Open Sans Regular")),
             PropertyFactory.textSize(12f),
@@ -583,7 +624,19 @@ class PositionMapActivity : Activity() {
             PropertyFactory.textOffset(arrayOf(0f, 1.0f)),
             PropertyFactory.textAllowOverlap(false),
             PropertyFactory.textOpacity(Expression.toNumber(Expression.get("fade"))),
-        ))
+        )) {
+            SymbolLayer(LAYER_LABELS, SRC_UNITS).withProperties(
+                PropertyFactory.textField(Expression.get("label")),
+                PropertyFactory.textFont(arrayOf("Open Sans Regular")),
+                PropertyFactory.textSize(12f),
+                PropertyFactory.textColor(Color.WHITE),
+                PropertyFactory.textHaloColor(Color.parseColor("#CC000000")),
+                PropertyFactory.textHaloWidth(1.5f),
+                PropertyFactory.textAnchor(Property.TEXT_ANCHOR_TOP),
+                PropertyFactory.textOffset(arrayOf(0f, 1.0f)),
+            )
+        }
+        if (s.getLayer(LAYER_UNITS) == null) mapProblems += "dots layer missing after setup"
     }
 
     // ---- Live overlays -------------------------------------------------------------------
@@ -718,7 +771,12 @@ class PositionMapActivity : Activity() {
             if (filter != null) append(" · TG ").append(filter)
         }
         emptyBanner.visibility = if (t == null && loaded.isEmpty() && filter == null) View.VISIBLE else View.GONE
-        val s = style ?: return
+        val s = style
+        if (s == null) {
+            lastRenderSkipped = "style not loaded"
+            return
+        }
+        lastRenderSkipped = ""
         val now = t ?: System.currentTimeMillis()
         val shown = if (t != null) {
             radiosAt(t)
@@ -743,8 +801,50 @@ class PositionMapActivity : Activity() {
         val tracks = shown.filter { it.track.size > 1 && it.source != historySource }.map { radio ->
             Feature.fromGeometry(LineString.fromLngLats(radio.track.map { Point.fromLngLat(it.longitude, it.latitude) }))
         }
-        s.getSourceAs<GeoJsonSource>(SRC_UNITS)?.setGeoJson(FeatureCollection.fromFeatures(points))
-        s.getSourceAs<GeoJsonSource>(SRC_TRACKS)?.setGeoJson(FeatureCollection.fromFeatures(tracks))
+        val unitsSource = s.getSourceAs<GeoJsonSource>(SRC_UNITS)
+        if (unitsSource == null) {
+            lastRenderSkipped = "dots source missing"
+        } else {
+            try {
+                unitsSource.setGeoJson(FeatureCollection.fromFeatures(points))
+                lastDotsSent = points.size
+            } catch (e: Throwable) {
+                lastRenderSkipped = "setGeoJson: ${e.javaClass.simpleName}: ${e.message}"
+            }
+        }
+        runCatching { s.getSourceAs<GeoJsonSource>(SRC_TRACKS)?.setGeoJson(FeatureCollection.fromFeatures(tracks)) }
+    }
+
+    private fun showDiagnostics() {
+        val s = style
+        val layerIds = listOf(LAYER_TRACKS, LAYER_HISTORY_LINE, LAYER_HISTORY_PTS, LAYER_HISTORY_LABELS, LAYER_ME,
+            LAYER_EMERGENCY, LAYER_SELECTED, LAYER_UNITS, LAYER_LABELS)
+        val body = buildString {
+            append("Style loaded: ").append(if (s != null) "yes ($styleLoads)" else "no").append('\n')
+            append("Radios in window: ").append(radios.size).append(" · all: ").append(allRadios.size).append('\n')
+            append("Dots sent to map: ").append(lastDotsSent).append('\n')
+            if (lastRenderSkipped.isNotEmpty()) append("Last draw skipped: ").append(lastRenderSkipped).append('\n')
+            map?.cameraPosition?.let { c ->
+                append(String.format(Locale.US, "Camera: %.4f, %.4f z%.1f", c.target?.latitude ?: 0.0, c.target?.longitude ?: 0.0, c.zoom)).append('\n')
+            }
+            radios.firstOrNull()?.let { r ->
+                append(String.format(Locale.US, "First radio: %d at %.5f, %.5f", r.source, r.latest.latitude, r.latest.longitude)).append('\n')
+            }
+            if (s != null) {
+                append("Layers: ")
+                append(layerIds.joinToString(", ") { id -> id.removePrefix("sig-") + if (s.getLayer(id) != null) " ✓" else " ✗" })
+                append('\n')
+                append("Dots source: ").append(if (s.getSource(SRC_UNITS) != null) "✓" else "✗").append('\n')
+            }
+            append("Problems: ").append(if (mapProblems.isEmpty()) "none" else mapProblems.joinToString("\n"))
+        }
+        dialog().setTitle(R.string.map_diagnostics_title).setMessage(body)
+            .setPositiveButton(R.string.map_copy) { _, _ ->
+                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("map diagnostics", body))
+                toast(getString(R.string.map_copied))
+            }
+            .setNegativeButton(R.string.map_close, null).show()
     }
 
     /** Full opacity for five minutes, then dimming toward 30 % at the edge of the time window. */
@@ -1058,6 +1158,7 @@ class PositionMapActivity : Activity() {
             getString(if (fadeOld) R.string.map_menu_fade_on else R.string.map_menu_fade_off),
             getString(R.string.map_menu_export),
             getString(R.string.map_menu_cache, cacheMb),
+            getString(R.string.map_menu_diagnostics),
         )
         dialog().setTitle(R.string.map_menu_title).setItems(items) { _, which ->
             when (which) {
@@ -1070,6 +1171,7 @@ class PositionMapActivity : Activity() {
                 6 -> { fadeOld = !fadeOld; savePreferences(); renderRadios() }
                 7 -> chooseExport()
                 8 -> chooseCache()
+                9 -> showDiagnostics()
             }
         }.setNegativeButton(android.R.string.cancel, null).show()
     }
@@ -1850,8 +1952,8 @@ class PositionMapActivity : Activity() {
         private const val LAYER_ME = "sig-me-dot"
         private const val LAYER_SELECTED = "sig-units-selected"
         private const val LAYER_EMERGENCY = "sig-units-emergency"
-        private const val LAYER_HISTORY_LINE = "sig-history-line"
-        private const val LAYER_HISTORY_PTS = "sig-history-pts"
+        private const val LAYER_HISTORY_LINE = "sig-history-line-layer"
+        private const val LAYER_HISTORY_PTS = "sig-history-pts-layer"
         private const val LAYER_HISTORY_LABELS = "sig-history-labels"
 
         private val BG = Color.parseColor("#0B0F14")

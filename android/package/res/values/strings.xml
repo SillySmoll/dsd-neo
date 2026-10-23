@@ -116,6 +116,9 @@
     <string name="map_recent_play_failed">Could not play that recording</string>
     <string name="map_recent_more">&#32;· %1$d more</string>
     <string name="map_recent_playing">▶ %1$s%2$s · tap to stop</string>
+    <string name="map_menu_diagnostics">Map diagnostics</string>
+    <string name="map_diagnostics_title">Map diagnostics</string>
+    <string name="map_problem_toast">Part of the map could not load. Layers → Map diagnostics shows what.</string>
     <string name="emergency_channel_name">Emergency alerts</string>
     <string name="emergency_channel_description">A radio declared an emergency</string>
     <string name="emergency_title">⚠ Radio emergency</string>
